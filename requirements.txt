@@ -1,0 +1,37 @@
+fastapi
+uvicorn[standard]
+
+# HTTP
+requests
+
+# Utilities
+wikipedia
+deep-translator
+
+# LangChain stack
+langchain
+langchain-core
+langchain-community
+langchain-openai
+langgraph
+langsmith
+
+# OpenAI
+openai
+tiktoken
+
+# Vector DB
+faiss-cpu
+
+# Google Cloud
+google-cloud-storage
+
+# Misc
+python-dotenv
+pydantic
+
+# 🔥 IMPORTANT ADDITIONS
+aiofiles
+orjson
+httpx
+numpy
