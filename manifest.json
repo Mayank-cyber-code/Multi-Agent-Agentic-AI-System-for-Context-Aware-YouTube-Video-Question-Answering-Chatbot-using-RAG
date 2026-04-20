@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube AI Assistant",
+  "description": "Ask AI about YouTube videos",
+  "version": "1.1",
+
+  "permissions": [
+    "identity",
+    "storage",
+    "activeTab",
+    "tabs",
+    "scripting"
+  ],
+
+  "host_permissions": [
+    "https://www.googleapis.com/*",
+    "https://accounts.google.com/*",
+    "https://youtube-ai-yos4vguqva-el.a.run.app/*",
+    "https://www.youtube.com/*"
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "YouTube AI Assistant"
+  },
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "oauth2": {
+    "client_id": "528259777917-8lachh9sp3old9qap2jfk3o8nb6bbrru.apps.googleusercontent.com",
+    "scopes": [
+      "openid",
+      "email",
+      "profile"
+    ]
+  }
+}
