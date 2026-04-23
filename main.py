@@ -5,7 +5,7 @@ import re
 import shutil
 import traceback
 from typing import TypedDict
-import json  # 🔥 ADD THIS
+import json  
 from datetime import datetime
 
 print("🔥 Starting FastAPI app...")
@@ -26,7 +26,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
-# ===== 🔥 GLOBAL EMBEDDINGS CACHE =====
+# ===== GLOBAL EMBEDDINGS CACHE =====
 EMBEDDINGS = OpenAIEmbeddings()
 
 from langgraph.graph import StateGraph, END
@@ -123,7 +123,7 @@ class AgentState(TypedDict):
     tool_output: str
     memory_context: str
     final_answer: str
-    timestamps: list   # ✅ ADD THIS
+    timestamps: list  
 
 # ===== HELPERS =====
 def extract_video_id(url):
@@ -319,7 +319,7 @@ def normalize_apify_data(data):
 
                 if isinstance(first, dict):
 
-                    # ✅ MOST IMPORTANT CASE (YOUR CASE)
+                    # MOST IMPORTANT CASE (YOUR CASE)
                     if "data" in first:
                         print("✅ Found 'data' inside list[0]")
                         return first["data"]
@@ -369,7 +369,7 @@ def parse_apify_transcript(data):
 
     print("🔎 Total items received:", total_items)
 
-    # ===== 🔥 CHUNK SCORING FUNCTION =====
+    # ===== CHUNK SCORING FUNCTION =====
     def score_chunk(text):
         words = text.split()
 
@@ -385,7 +385,7 @@ def parse_apify_transcript(data):
 
         return score
 
-    # ===== 🔥 PARSE RAW DATA =====
+    # ===== PARSE RAW DATA =====
     for i, item in enumerate(data):
         try:
             if not isinstance(item, dict):
@@ -405,7 +405,7 @@ def parse_apify_transcript(data):
 
             clean_text = text.strip().replace("\n", " ")
 
-            # 🔥 CLEAN NOISE
+            # CLEAN NOISE
             clean_text = re.sub(r"\{.*?\}", "", clean_text)
             clean_text = re.sub(r"\[.*?\]", "", clean_text)
             clean_text = re.sub(r"\s+", " ", clean_text).strip()
@@ -464,7 +464,7 @@ def parse_apify_transcript(data):
     print("   Skipped items:", skipped_items)
     print("🧠 Documents created:", len(documents))
 
-    # ===== 🔥 SEMANTIC MERGE (FINAL FIX) =====
+    # ===== SEMANTIC MERGE (FINAL FIX) =====
 
     merged_docs = []
     buffer = []
@@ -549,7 +549,7 @@ def parse_apify_transcript(data):
 
     documents = merged_docs
 
-    # ===== 🔥 BUILD TRANSCRIPT (FIXED) =====
+    # ===== BUILD TRANSCRIPT (FIXED) =====
     transcript_lines = []
 
     for doc in documents:
@@ -560,7 +560,7 @@ def parse_apify_transcript(data):
             continue
 
         if start is not None:
-            # 🔥 REMOVE existing timestamps from text first
+            # REMOVE existing timestamps from text first
             clean_text = re.sub(r"\[\d+s\]", "", text).strip()
 
             transcript_lines.append(f"[{int(start)}s] {clean_text}")
@@ -594,7 +594,7 @@ def fetch_transcript_apify(video_url):
         url = f"https://api.apify.com/v2/acts/pintostudio~youtube-transcript-scraper/run-sync-get-dataset-items?token={APIFY_TOKEN}"
         payload = {"videoUrl": video_url}
 
-        # 🔥 API CALL
+        # API CALL
         res = requests.post(url, json=payload, timeout=60)
 
         # 🔍 BASIC LOGS
@@ -606,7 +606,7 @@ def fetch_transcript_apify(video_url):
             print("❌ Apify HTTP error:", res.status_code)
             return None, None
 
-        # 🔥 SAFE JSON PARSING (CRITICAL FIX)
+        # SAFE JSON PARSING (CRITICAL FIX)
         try:
             raw_data = res.json()
             print("✅ JSON parsed successfully")
@@ -617,7 +617,7 @@ def fetch_transcript_apify(video_url):
 
         print("🧠 Raw JSON type:", type(raw_data))
 
-        # 🔥 NORMALIZE DATA (VERY IMPORTANT)
+        # NORMALIZE DATA (VERY IMPORTANT)
         data = normalize_apify_data(raw_data)
 
         if not data:
@@ -631,10 +631,10 @@ def fetch_transcript_apify(video_url):
             print("🔎 First normalized item:", data[0])
             print("🔎 Last normalized item:", data[-1])
 
-        # 🔥 PARSE TRANSCRIPT
+        # PARSE TRANSCRIPT
         transcript, documents = parse_apify_transcript(data)
 
-        # ❌ HANDLE PARSE FAILURE
+        # HANDLE PARSE FAILURE
         if not transcript:
             print("⚠️ Parser returned empty → fallback will trigger")
             return None, None
@@ -651,14 +651,14 @@ def fetch_transcript_apify(video_url):
 
 # ===== VIDEO PROCESS (UPDATED FIXES HERE) =====
 
-# 🔥 GLOBAL CACHE (ADD THIS AT TOP OF FILE ONCE)
+# GLOBAL CACHE (ADD THIS AT TOP OF FILE ONCE)
 VECTOR_CACHE = {}
 
 # ===== VIDEO PROCESS (UPDATED) =====
 def get_or_create_vectorstore(video_url):
     vid = extract_video_id(video_url)
 
-    # ===== 🔥 STEP 1: IN-MEMORY CACHE =====
+    # ===== STEP 1: IN-MEMORY CACHE =====
     if vid in VECTOR_CACHE:
         print("⚡ Using in-memory vector cache")
         return VECTOR_CACHE[vid]
@@ -668,7 +668,7 @@ def get_or_create_vectorstore(video_url):
     if store:
         print("📦 Loaded vector from GCS")
 
-        VECTOR_CACHE[vid] = store  # 🔥 cache it
+        VECTOR_CACHE[vid] = store  # cache it
         return store
 
     # ===== STEP 3: LOAD TRANSCRIPT =====
@@ -703,9 +703,9 @@ def get_or_create_vectorstore(video_url):
     # ===== STEP 4: EMBEDDINGS =====
     embeddings = get_embeddings()
 
-    # 🔥 IMPROVED CHUNKING
+    # IMPROVED CHUNKING
     split_docs = RecursiveCharacterTextSplitter(
-        chunk_size=800,        # 🔥 improved
+        chunk_size=800,        # improved
         chunk_overlap=100
     ).split_documents(docs)
 
@@ -717,7 +717,7 @@ def get_or_create_vectorstore(video_url):
     # ===== STEP 6: SAVE + CACHE =====
     save_vectorstore(vid, store)
 
-    VECTOR_CACHE[vid] = store  # 🔥 cache in memory
+    VECTOR_CACHE[vid] = store  # cache in memory
 
     return store
 
@@ -731,7 +731,7 @@ def keyword_search(transcript, query):
     for line in lines:
         score = sum(1 for w in words if w in line.lower())
 
-        # 🔥 Match if at least half words match
+        # Match if at least half words match
         if score >= max(1, len(words) // 2):
             results.append(line)
 
@@ -774,7 +774,7 @@ def build_graph(store, user_id, transcript):
 
         decision = safe_llm_call(prompt).strip().lower()
 
-        # ===== 🔥 NEW: QUESTION CLASSIFICATION (ADD HERE) =====
+        # ===== NEW: QUESTION CLASSIFICATION (ADD HERE) =====
 
         classification_prompt = f"""
         Classify this question:
@@ -793,7 +793,7 @@ def build_graph(store, user_id, transcript):
 
         print("🧠 Question Type:", q_type)
 
-        # ===== 🔥 MAP TYPE TO PLAN =====
+        # ===== MAP TYPE TO PLAN =====
         if q_type == "factual":
             decision = "retrieve"
         elif q_type == "explanatory":
@@ -810,7 +810,7 @@ def build_graph(store, user_id, transcript):
 
 
 
-        # ===== 🔥 IMPROVED LENGTH-BASED CORRECTION =====
+        # ===== IMPROVED LENGTH-BASED CORRECTION =====
         q_len = len(question.split())
 
         # only override for VERY short + weak queries
@@ -823,14 +823,14 @@ def build_graph(store, user_id, transcript):
         state["plan"] = decision
         return state
 
-    # ===== 🔥 CONTEXT COMPRESSION =====
+    # ===== CONTEXT COMPRESSION =====
     def compress_context(context, max_lines=20):
         lines = context.split("\n")
 
-        # ✅ keep only non-empty lines
+        # keep only non-empty lines
         lines = [l for l in lines if l.strip()]
 
-        # ✅ keep original order
+        # keep original order
         if len(lines) > max_lines:
             half = max_lines // 2
             lines = lines[:half] + lines[-half:]
@@ -842,7 +842,7 @@ def build_graph(store, user_id, transcript):
         plan = state.get("plan", "retrieve")
         query = state["question"]
 
-        # ===== 🔥 EXTRACT REAL TIMESTAMP FROM CHUNK =====
+        # ===== EXTRACT REAL TIMESTAMP FROM CHUNK =====
         def extract_timestamp_from_chunk(text):
             matches = re.findall(r"\[(\d+)s\]", text)
             if matches:
@@ -864,7 +864,7 @@ def build_graph(store, user_id, transcript):
 
             selected_chunks = []
 
-            # ===== 🔥 STEP 1: COVERAGE (start → middle → end) =====
+            # ===== STEP 1: COVERAGE (start → middle → end) =====
             step = max(1, total_chunks // max_chunks)
 
             for i in range(0, total_chunks, step):
@@ -872,7 +872,7 @@ def build_graph(store, user_id, transcript):
                 if len(selected_chunks) >= max_chunks // 2:
                     break
 
-            # ===== 🔥 STEP 2: IMPORTANCE (longer = richer info) =====
+            # ===== STEP 2: IMPORTANCE (longer = richer info) =====
             remaining = sorted(chunks, key=lambda x: len(x), reverse=True)
 
             for c in remaining:
@@ -881,8 +881,7 @@ def build_graph(store, user_id, transcript):
                 if len(selected_chunks) >= max_chunks:
                     break
 
-            # ===== 🔥 FINAL DOCS =====
-            # ===== 🔥 FINAL DOCS WITH REAL TIMESTAMPS =====
+            # ===== FINAL DOCS WITH REAL TIMESTAMPS =====
             docs = [
                 Document(
                     page_content=chunk,
@@ -903,7 +902,6 @@ def build_graph(store, user_id, transcript):
         else:
             print("🔎 Using VECTOR SEARCH")
 
-            # ===== 🔥 ADD HERE =====
             total_chunks = store.index.ntotal if hasattr(store, "index") else 50
 
             print("📊 Total vector chunks:", total_chunks)
@@ -924,7 +922,7 @@ def build_graph(store, user_id, transcript):
             query_words = query_lower.split()
             query_len = len(query_words)
 
-            # ===== 🔥 GENERIC QUERY ANALYSIS (NO HARDCODING) =====
+            # ===== GENERIC QUERY ANALYSIS (NO HARDCODING) =====
 
             # short query → usually vague
             is_short = query_len <= 5
@@ -937,7 +935,7 @@ def build_graph(store, user_id, transcript):
             starts_like_question = query_words[0] in question_starters if query_words else False
 
 
-            # ===== 🔥 FINAL K (FIXED) =====
+            # ===== FINAL K (FIXED) =====
             k = base_k
 
             # slight boost for very short queries
@@ -946,7 +944,7 @@ def build_graph(store, user_id, transcript):
 
             k = min(k, total_chunks)
 
-            # ===== 🔥 ENTITY-LIKE DETECTION (GENERIC) =====
+            # ===== ENTITY-LIKE DETECTION (GENERIC) =====
             is_entity_like = is_short and starts_like_question
 
             search_query = query
@@ -955,16 +953,16 @@ def build_graph(store, user_id, transcript):
                 print("🧠 Entity-like query → boosting semantic meaning")
                 search_query = query + " identity role context details"
 
-            # ===== 🔥 FINAL SEMANTIC SEARCH =====
+            # ===== FINAL SEMANTIC SEARCH =====
             semantic_docs = store.similarity_search(search_query, k=k)
 
 
-            # ===== 🔥 LIMIT KEYWORD IMPACT =====
+            # ===== LIMIT KEYWORD IMPACT =====
             keyword_results = keyword_search(transcript, query)
 
             keyword_docs = []
 
-            for txt in keyword_results[:2]:  # 🔥 LIMIT TO 2 ONLY
+            for txt in keyword_results[:2]:  # LIMIT TO 2 ONLY
                 match = re.search(r"\[(\d+)s\]", txt)
                 start = int(match.group(1)) if match else None
 
@@ -972,10 +970,10 @@ def build_graph(store, user_id, transcript):
                     Document(page_content=txt, metadata={"start": start})
                 )
 
-            # ===== 🔥 STEP 1: COMBINE (SEMANTIC PRIORITY) =====
+            # ===== STEP 1: COMBINE (SEMANTIC PRIORITY) =====
             docs = semantic_docs + keyword_docs
 
-            # ===== 🔥 STEP 2: REMOVE DUPLICATES =====
+            # ===== STEP 2: REMOVE DUPLICATES =====
             seen = set()
             unique_docs = []
 
@@ -985,19 +983,19 @@ def build_graph(store, user_id, transcript):
                     seen.add(content)
                     unique_docs.append(d)
 
-            # ===== 🔥 STEP 3: SEMANTIC RE-RANK (IMPORTANT FIX) =====
+            # ===== STEP 3: SEMANTIC RE-RANK (IMPORTANT FIX) =====
             def semantic_score(doc, query):
                 doc_words = set(doc.page_content.lower().split())
                 query_words = set(query.lower().split())
 
                 overlap = len(doc_words.intersection(query_words))
 
-                # 🔥 BOOST LONGER + RICHER CONTEXT
+                # BOOST LONGER + RICHER CONTEXT
                 length_bonus = min(len(doc.page_content) / 200, 2)
 
                 return overlap + length_bonus
 
-            # ===== 🔥 STEP 3: SEMANTIC RE-RANK =====
+            # ===== STEP 3: SEMANTIC RE-RANK =====
             ranked_docs = sorted(
                 unique_docs,
                 key=lambda d: semantic_score(d, query),
@@ -1010,14 +1008,14 @@ def build_graph(store, user_id, transcript):
 
             print(f"📊 Final docs after adaptive retrieval: {len(docs)}")
 
-        # 🔥 BOOST MEMORY INTO CONTEXT (ONLY IF RELEVANT)
+        # BOOST MEMORY INTO CONTEXT (ONLY IF RELEVANT)
         if state.get("memory_context"):
             context = "Previous conversation:\n" + state["memory_context"] + "\n\n"
         else:
             context = ""
 
         timestamps = []
-        timestamps_set = set()  # 🔥 NEW (fast lookup)
+        timestamps_set = set()  # NEW (fast lookup)
 
         for d in docs:
             ts = d.metadata.get("start")
@@ -1029,7 +1027,7 @@ def build_graph(store, user_id, transcript):
             if ts is not None:
                 context += f"[{int(ts)}s] {content}\n"
 
-                # 🔥 OPTIMIZED DUPLICATE CHECK
+                # OPTIMIZED DUPLICATE CHECK
                 if ts not in timestamps_set:
                     timestamps.append(ts)
                     timestamps_set.add(ts)
@@ -1038,34 +1036,34 @@ def build_graph(store, user_id, transcript):
                 context += f"{content}\n"
 
 
-        # ✅ HANDLE EMPTY CONTEXT FIRST
+        # HANDLE EMPTY CONTEXT FIRST
         if not context.strip():
             print("⚠️ No relevant context found")
             context = "No relevant transcript found."
 
-        # ===== 🔥 SAVE RAW CONTEXT BEFORE COMPRESSION =====
+        # ===== SAVE RAW CONTEXT BEFORE COMPRESSION =====
         raw_context = context
 
-        # ===== 🔥 APPLY CONTEXT COMPRESSION =====
+        # ===== APPLY CONTEXT COMPRESSION =====
         context = compress_context(context)
 
 
         if not context.strip():
             print("❌ EMPTY CONTEXT BUG")
 
-        # 🔥 FORCE SAFE CONTEXT (VERY IMPORTANT)
+        # FORCE SAFE CONTEXT (VERY IMPORTANT)
         if len(context.strip()) < 20:
             context = raw_context
         state["tool_output"] = context
 
-        # ===== 🔥 SET CONTEXT LENGTH =====
+        # ===== SET CONTEXT LENGTH =====
         state["context_length"] = len(context)
 
-        # ===== 🔥 ENSURE retrieval_count EXISTS =====
+        # ===== ENSURE retrieval_count EXISTS =====
         if "retrieval_count" not in state:
             state["retrieval_count"] = len(docs)
 
-        # ===== 🔥 EXTRACT TIMESTAMPS FROM RAW CONTEXT (NOT COMPRESSED) =====
+        # ===== EXTRACT TIMESTAMPS FROM RAW CONTEXT (NOT COMPRESSED) =====
         valid_timestamps = []
 
         for line in raw_context.split("\n"):
@@ -1111,7 +1109,7 @@ def build_graph(store, user_id, transcript):
 
         reasoning = safe_llm_call(prompt)
 
-        # ===== 🔥 REMOVE VERY SHORT / BROKEN LINES =====
+        # ===== REMOVE VERY SHORT / BROKEN LINES =====
         lines = reasoning.split("\n")
         cleaned = []
 
@@ -1121,7 +1119,7 @@ def build_graph(store, user_id, transcript):
 
         reasoning = "\n".join(cleaned)
 
-        # ===== 🔥 LLM-BASED HALLUCINATION CHECK =====
+        # ===== LLM-BASED HALLUCINATION CHECK =====
         def is_reasoning_hallucinated(context, reasoning):
             prompt = f"""
             Check whether this reasoning is fully grounded in the transcript.
@@ -1155,7 +1153,7 @@ def build_graph(store, user_id, transcript):
 
             return "yes" in decision_clean
 
-        # ===== 🔥 APPLY CHECK =====
+        # ===== APPLY CHECK =====
         if reasoning.strip():
             if is_reasoning_hallucinated(state["tool_output"], reasoning):
                 print("⚠️ Hallucinated reasoning detected → resetting")
@@ -1172,7 +1170,7 @@ def build_graph(store, user_id, transcript):
 
         memory = retrieve_memory(user_id, state["question"])
 
-        # 🔥 FILTER RELEVANT MEMORY ONLY
+        # FILTER RELEVANT MEMORY ONLY
         if memory and len(memory.strip()) > 20:
             state["memory_context"] = memory
         else:
@@ -1186,7 +1184,7 @@ def build_graph(store, user_id, transcript):
         plan = state.get("plan", "")
         state["needs_fallback"] = False
 
-        # ===== 🔥 DIFFERENT PROMPT FOR SUMMARIZE =====
+        # ===== DIFFERENT PROMPT FOR SUMMARIZE =====
         if plan == "summarize":
 
             prompt = f"""
@@ -1235,7 +1233,7 @@ def build_graph(store, user_id, transcript):
 
 
 
-        # ===== 🔥 NORMAL QA PROMPT =====
+        # ===== NORMAL QA PROMPT =====
         else:
             prompt = f"""
         You are an AI assistant.
@@ -1299,7 +1297,7 @@ def build_graph(store, user_id, transcript):
         """
 
         # ===== GENERATE ANSWER =====
-        # 🔥 SELECT TASK BASED ON PLAN
+        # SELECT TASK BASED ON PLAN
         task_type = "summary" if plan == "summarize" else "qa"
 
         answer = safe_llm_call(prompt, task=task_type)
@@ -1307,7 +1305,7 @@ def build_graph(store, user_id, transcript):
         if "error generating response" in answer.lower():
             answer = "Not mentioned in the video"
 
-        # 🔥 EXPAND TOO SHORT SUMMARIES
+        # EXPAND TOO SHORT SUMMARIES
         if plan == "summarize" and len(answer.strip()) < 80:
             print("⚠️ Expanding short summary")
 
@@ -1326,10 +1324,10 @@ def build_graph(store, user_id, transcript):
             answer = safe_llm_call(expand_prompt, task="summary")
 
 
-        # ===== 🔥 FORCE TIMESTAMP ALIGNMENT (FOR BOTH summarize + retrieve) =====
+        # ===== FORCE TIMESTAMP ALIGNMENT (FOR BOTH summarize + retrieve) =====
 
         context_lines = state["tool_output"].split("\n")
-        # ===== 🔥 CLEAN + NORMALIZE BULLETS (IMPORTANT FIX) =====
+        # ===== CLEAN + NORMALIZE BULLETS (IMPORTANT FIX) =====
 
         raw_lines = answer.split("\n")
 
@@ -1344,7 +1342,7 @@ def build_graph(store, user_id, transcript):
             # remove bullet symbols
             line = re.sub(r"^[•\-]\s*", "", line)
 
-            # 🔥 split if multiple ideas joined by common separators
+            # split if multiple ideas joined by common separators
             parts = re.split(r"\s+\|\s+|\s+-\s+|\.\s+(?=[A-Z])", line)
 
             for p in parts:
@@ -1358,7 +1356,7 @@ def build_graph(store, user_id, transcript):
 
         embeddings = get_embeddings()
 
-        # ===== 🔥 BATCH ANSWER EMBEDDINGS =====
+        # ===== BATCH ANSWER EMBEDDINGS =====
         answer_texts = [ans.lower()[:300] for ans in answer_lines]
 
         try:
@@ -1368,7 +1366,7 @@ def build_graph(store, user_id, transcript):
             answer_embeddings = [None] * len(answer_lines)
 
 
-        # ===== 🔥 BATCHED CONTEXT EMBEDDINGS (OPTIMIZED) =====
+        # ===== BATCHED CONTEXT EMBEDDINGS (OPTIMIZED) =====
 
         context_embeddings = []
         context_timestamps = []
@@ -1401,10 +1399,10 @@ def build_graph(store, user_id, transcript):
 
         new_answer = []
 
-        # ===== 🔥 PREVENT DUPLICATES =====
+        # ===== PREVENT DUPLICATES =====
         used_timestamps = set()
 
-        # ===== 🔥 UPDATED LOOP WITH BATCH =====
+        # ===== UPDATED LOOP WITH BATCH =====
         for idx, ans in enumerate(answer_lines):
 
             matched_ts = None
@@ -1413,7 +1411,7 @@ def build_graph(store, user_id, transcript):
 
             if ans_emb and context_embeddings:
 
-                # ===== 🔥 BEST MATCH ONLY (IMPORTANT FIX) =====
+                # ===== BEST MATCH ONLY (IMPORTANT FIX) =====
                 best_score = 0
                 best_idx = None
 
@@ -1424,7 +1422,7 @@ def build_graph(store, user_id, transcript):
                         best_score = score
                         best_idx = i
 
-                # 🔥 APPLY THRESHOLD
+                # APPLY THRESHOLD
                 if best_score >= 0.65 and best_idx is not None:
 
                     candidate_ts = context_timestamps[best_idx]
@@ -1433,14 +1431,14 @@ def build_graph(store, user_id, transcript):
                         matched_ts = candidate_ts
                         used_timestamps.add(candidate_ts)
 
-            # ===== 🔥 CLEAN EXISTING TIMESTAMPS =====
+            # ===== CLEAN EXISTING TIMESTAMPS =====
             ans_clean = re.sub(r"\[\d+:\d{2}\]", "", ans)  # remove [mm:ss]
             ans_clean = re.sub(r"\[\d+s\]", "", ans_clean)  # remove [123s]
             ans_clean = ans_clean.strip()
 
             ans_clean = re.sub(r"\s+", " ", ans_clean)
 
-            # ===== 🔥 ADD FINAL TIMESTAMP =====
+            # ===== ADD FINAL TIMESTAMP =====
             if matched_ts:
                 new_answer.append(f"{ans_clean} [{matched_ts}s]")
             else:
@@ -1449,7 +1447,7 @@ def build_graph(store, user_id, transcript):
         answer = "\n".join(new_answer)
 
 
-        # ===== 🔥 FINAL TIMESTAMP FIX BLOCK (COMPLETE) =====
+        # ===== FINAL TIMESTAMP FIX BLOCK (COMPLETE) =====
 
         # ---------- 1. sec → mm:ss ----------
         def sec_to_mmss(sec):
@@ -1476,7 +1474,7 @@ def build_graph(store, user_id, transcript):
             text = re.sub(r"\[(\d+:\d{2})\]\.", r"[\1]", text)
             return text
 
-        # ---------- 4. REMOVE FAKE TIMESTAMPS (🔥 MOST IMPORTANT) ----------
+        # ---------- 4. REMOVE FAKE TIMESTAMPS (MOST IMPORTANT) ----------
         def mmss_to_sec(m, s):
             return int(m) * 60 + int(s)
 
@@ -1486,7 +1484,7 @@ def build_graph(store, user_id, transcript):
             for m, s in matches:
                 sec = mmss_to_sec(m, s)
 
-                # ✅ allow small tolerance (±5 sec)
+                # allow small tolerance (±5 sec)
                 valid = any(abs(sec - int(t)) <= 5 for t in real_timestamps)
 
                 if not valid:
@@ -1499,7 +1497,7 @@ def build_graph(store, user_id, transcript):
         answer = convert_timestamps(answer)
         answer = clean_timestamp_format(answer)
 
-        # 🔥 use REAL timestamps from tool()
+        # use REAL timestamps from tool()
         real_ts = state.get("timestamps", [])
 
         answer = remove_fake_timestamps(answer, real_ts)
@@ -1573,7 +1571,7 @@ def build_graph(store, user_id, transcript):
             print("⚠️ Hallucinated structure detected")
             state["needs_fallback"] = True
 
-        # ===== 🔥 REAL CONFIDENCE CALCULATION =====
+        # ===== REAL CONFIDENCE CALCULATION =====
 
         def compute_confidence(context, answer):
             if not context or not answer:
@@ -1582,20 +1580,20 @@ def build_graph(store, user_id, transcript):
             context_words = set(context.lower().split())
             answer_words = set(answer.lower().split())
 
-            # 🔹 overlap score
+            # overlap score
             overlap = len(context_words.intersection(answer_words))
             total = max(len(answer_words), 1)
             overlap_score = overlap / total
 
-            # 🔹 length score (avoid tiny answers)
+            # length score (avoid tiny answers)
             length_score = min(len(answer) / 500, 1)
 
-            # 🔹 penalty for "not mentioned"
+            # penalty for "not mentioned"
             penalty = 0
             if "not mentioned" in answer.lower():
                 penalty = 0.5
 
-            # 🔹 final score
+            # final score
             confidence = (0.7 * overlap_score) + (0.3 * length_score)
             confidence = confidence - penalty
 
@@ -1607,7 +1605,7 @@ def build_graph(store, user_id, transcript):
             answer
         )
 
-        # ===== 🔥 CONTEXT QUALITY SCORE (EMBEDDING BASED) =====
+        # ===== CONTEXT QUALITY SCORE (EMBEDDING BASED) =====
 
         def compute_context_quality(context, answer):
             try:
@@ -1637,7 +1635,7 @@ def build_graph(store, user_id, transcript):
             state.get("tool_output", ""),
             answer
         )
-        # ===== 🔥 FINAL RELIABILITY SCORE =====
+        # ===== FINAL RELIABILITY SCORE =====
         final_score = (
                 0.5 * state["confidence"] +
                 0.5 * state["context_quality"]
@@ -1685,7 +1683,7 @@ def build_graph(store, user_id, transcript):
 
         plan = state.get("plan", "")
 
-        # 🚫 DO NOT FALLBACK FOR SUMMARIZE
+        # DO NOT FALLBACK FOR SUMMARIZE
         if plan == "summarize":
             return state
 
@@ -1693,7 +1691,7 @@ def build_graph(store, user_id, transcript):
         answer = state["final_answer"]
         context = state.get("tool_output", "")
 
-        # ===== 🔥 CONFIDENCE FUNCTION (KEEP) =====
+        # ===== CONFIDENCE FUNCTION (KEEP) =====
         def get_confidence(question, context, answer):
             prompt = f"""
             Rate how well the answer is supported by the transcript.
@@ -1727,7 +1725,7 @@ def build_graph(store, user_id, transcript):
         # ===== COMPUTE CONFIDENCE =====
         confidence = get_confidence(question, context, answer)
 
-        # 🔥 FIX: do NOT override existing confidence
+        # FIX: do NOT override existing confidence
         state["confidence"] = min(
             state.get("confidence", 1.0),
             confidence
@@ -1743,12 +1741,12 @@ def build_graph(store, user_id, transcript):
 
         print("📊 Confidence:", confidence)
 
-        # ===== 🚫 SKIP IF GOOD ANSWER =====
+        # ===== SKIP IF GOOD ANSWER =====
         # Confidence should NOT block fallback alone
         if confidence >= 0.7:
             print("⚠️ High confidence — but checking usefulness")
 
-        # ===== 🔥 SEMANTIC FALLBACK DECISION (NEW) =====
+        # ===== SEMANTIC FALLBACK DECISION (NEW) =====
         def should_fallback(question, context, answer):
             prompt = f"""
             Decide if we should use external knowledge (Wikipedia/Web) 
@@ -1792,7 +1790,7 @@ def build_graph(store, user_id, transcript):
                 print("⚠️ Empty fallback decision → forcing fallback")
                 return True
 
-            # ✅ robust check (NOT hardcoded — handles LLM variability)
+            # robust check (NOT hardcoded — handles LLM variability)
             return decision_clean.startswith("yes")
 
         semantic_fallback = should_fallback(question, context, answer)
@@ -1816,7 +1814,7 @@ def build_graph(store, user_id, transcript):
             best_match = search_results[0]
             print("🔎 Wikipedia best match:", best_match)
 
-            # ===== 🔥 SEMANTIC ANSWER STYLE (NEW) =====
+            # ===== SEMANTIC ANSWER STYLE (NEW) =====
             def get_answer_style(question):
                 prompt = f"""
                 Decide the answer style.
@@ -1835,7 +1833,7 @@ def build_graph(store, user_id, transcript):
 
             style = get_answer_style(query)
 
-            # ===== 🔥 FETCH WIKI (UPDATED) =====
+            # ===== FETCH WIKI (UPDATED) =====
             try:
                 if style == "short":
                     wiki = wikipedia.summary(best_match, sentences=2)
@@ -1855,7 +1853,7 @@ def build_graph(store, user_id, transcript):
                 print("❌ Page not found")
                 return state
 
-            # ===== 🔥 FORMAT ANSWER =====
+            # ===== FORMAT ANSWER =====
             prompt = f"""
             Answer the question using this Wikipedia content.
 
@@ -1874,18 +1872,18 @@ def build_graph(store, user_id, transcript):
 
             new_answer = safe_llm_call(prompt, task="summary")
 
-            # ===== 🔥 SMART MERGE / REPLACE =====
+            # ===== SMART MERGE / REPLACE =====
 
             needs_replace = (confidence < 0.3)
 
             if needs_replace:
-                # 🔥 FULL REPLACEMENT
+                # FULL REPLACEMENT
                 state["final_answer"] = (
                         new_answer + "\n\n📚 Source: Wikipedia"
                 )
                 state["needs_fallback"] = False
             else:
-                # 🔥 APPEND (answer already useful)
+                # APPEND (answer already useful)
                 state["final_answer"] = (
                         answer + "\n\n---\n\n"
                                  "Additional context from Wikipedia:\n"
@@ -1898,13 +1896,13 @@ def build_graph(store, user_id, transcript):
             print("❌ Wikipedia fallback error:", e)
 
         # ==============================
-        # 🔥 NEW: TAVILY FALLBACK
+        # NEW: TAVILY FALLBACK
         # ==============================
 
         # ==============================
-        # 🔥 NEW: TAVILY FALLBACK (FIXED)
+        # NEW: TAVILY FALLBACK (FIXED)
         # ==============================
-        # ✅ ADD THIS BLOCK HERE
+        # ADD THIS BLOCK HERE
         if not state.get("needs_fallback"):
             print("⛔ Skipping Tavily (fallback already resolved)")
             return state
@@ -1914,7 +1912,7 @@ def build_graph(store, user_id, transcript):
             query = state["question"]
             current_answer = state["final_answer"]
 
-            # 🔥 USE SEMANTIC DECISION (NO HARDCODING)
+            # USE SEMANTIC DECISION (NO HARDCODING)
             tavily_needed = should_fallback(
                 query,
                 context,
@@ -1962,7 +1960,7 @@ def build_graph(store, user_id, transcript):
     def critic_node(state):
         answer = state["final_answer"]
 
-        # ===== 🔥 STEP 1: CHECK IF IMPROVEMENT IS NEEDED (LLM-BASED) =====
+        # ===== STEP 1: CHECK IF IMPROVEMENT IS NEEDED (LLM-BASED) =====
         def needs_improvement(answer):
             prompt = f"""
             Decide whether this answer needs improvement.
@@ -2000,18 +1998,18 @@ def build_graph(store, user_id, transcript):
 
             return "yes" in decision_clean
 
-        # ===== 🔥 STEP 2: DECIDE =====
+        # ===== STEP 2: DECIDE =====
         improve = needs_improvement(answer)
 
         if not improve:
             print("✅ Critic skipped (answer is good)")
 
-            # 🔥 OPTIONAL SAFETY (ADD THIS)
+            # OPTIONAL SAFETY (ADD THIS)
             state["metrics"] = state.get("metrics", {})
 
             return state
 
-        # ===== 🔥 STEP 3: IMPROVE ANSWER =====
+        # ===== STEP 3: IMPROVE ANSWER =====
         prompt = f"""
         Improve this answer ONLY if it is unclear or incomplete.
 
@@ -2032,7 +2030,7 @@ def build_graph(store, user_id, transcript):
 
         improved = safe_llm_call(prompt)
 
-        # ===== 🔥 STEP 4: SAFETY CHECK =====
+        # ===== STEP 4: SAFETY CHECK =====
         if improved:
             improved_clean = improved.strip()
 
@@ -2115,7 +2113,7 @@ def build_graph(store, user_id, transcript):
         followups = safe_llm_call(prompt)
 
         state["final_answer"] += f"\n\n💡 Follow-up questions:\n{followups}"
-        # 🔥 PRESERVE METRICS
+        #  PRESERVE METRICS
         state["confidence"] = state.get("confidence")
         state["retrieval_count"] = state.get("retrieval_count")
         state["context_length"] = state.get("context_length")
@@ -2141,7 +2139,6 @@ def build_graph(store, user_id, transcript):
     graph.add_node("fallback_node", fallback_node)
     graph.add_node("critic_node", critic_node)
 
-    # ✅ ADD THIS
     graph.add_node("followup_node", followup_node)
 
     graph.set_entry_point("planner")
@@ -2153,7 +2150,7 @@ def build_graph(store, user_id, transcript):
     graph.add_edge("answer_node", "fallback_node")
     graph.add_edge("fallback_node", "critic_node")
 
-    # 🔥 ONLY CHANGE HERE
+    # ONLY CHANGE HERE
     graph.add_edge("critic_node", "followup_node")
     graph.add_edge("followup_node", END)
 
@@ -2168,18 +2165,18 @@ async def ask_stream(request: Request):
         video_url = data.get("video_url")
         question = data.get("question")
 
-        # 🔥 VALIDATION
+        # VALIDATION
         if not video_url or not question:
             return {"error": "Missing video_url or question"}
 
         session_id = data.get("session_id", "default")
 
-        # 🔥 EXTRACT VIDEO ID
+        # EXTRACT VIDEO ID
         video_id = extract_video_id(video_url)
         if not video_id:
             return {"error": "Invalid YouTube URL"}
 
-        # 🔥 MAKE USER+VIDEO UNIQUE (IMPORTANT FIX)
+        # MAKE USER+VIDEO UNIQUE (IMPORTANT FIX)
         user_id = session_id
 
         # ===== VECTOR STORE =====
@@ -2215,10 +2212,10 @@ async def ask_stream(request: Request):
 
         final_answer = result["final_answer"]
 
-        # 🔥 GET METRICS DIRECTLY FROM STATE
+        # GET METRICS DIRECTLY FROM STATE
         metrics = result.get("metrics", {})
 
-        # 🔥 SAFE FALLBACK (if missing)
+        # SAFE FALLBACK (if missing)
         metrics = {
             "confidence": metrics.get("confidence", result.get("confidence", 0.0)),
             "context_length": metrics.get("context_length", result.get("context_length", 0)),
@@ -2242,13 +2239,13 @@ async def ask_stream(request: Request):
         save_memory(user_id, question, final_answer)
         save_chat_history(user_id, question, final_answer)
 
-        # ===== ✅ CORRECT STREAMING (FINAL FIX) =====
+        # ===== CORRECT STREAMING (FINAL FIX) =====
         def stream():
             try:
-                # 🔹 send answer
+                # send answer
                 yield f"data: {final_answer}\n\n"
 
-                # 🔹 send metrics (VERY IMPORTANT)
+                # send metrics (VERY IMPORTANT)
                 yield f"event: metrics\ndata: {json.dumps(metrics)}\n\n"
 
             except Exception as e:
