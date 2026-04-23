@@ -9,11 +9,10 @@ const chatDiv = document.getElementById("chat");
 const youtubeUrlInput = document.getElementById("youtube-url");
 const userEmailSpan = document.getElementById("user-email");
 
-// 🔥 NEW
 const sessionListDiv = document.getElementById("sessionList");
 
 // ==============================
-// 🔹 SESSION MANAGEMENT (NEW)
+// SESSION MANAGEMENT (NEW)
 // ==============================
 async function getSessionId() {
   const videoUrl = document.getElementById("youtube-url").value;
@@ -22,7 +21,7 @@ async function getSessionId() {
   const videoIdMatch = videoUrl.match(/(?:v=|youtu.be\/)([^&?/]+)/);
   const videoId = videoIdMatch ? videoIdMatch[1] : null;
 
-  // 🔥 EDGE CASE FIX
+  // EDGE CASE FIX
   if (!videoId) {
     const fallbackId = Date.now().toString();
     chrome.storage.local.set({ session_id: fallbackId });
@@ -58,7 +57,7 @@ async function saveSessionMeta(sessionId, question) {
 
       const videoUrl = document.getElementById("youtube-url").value;
 
-      // 🔥 FETCH VIDEO TITLE
+      // FETCH VIDEO TITLE
       const title = await getVideoTitle(videoUrl);
 
       sessions.unshift({
@@ -82,7 +81,7 @@ function loadSessionsUI() {
       const div = document.createElement("div");
       div.className = "session";
 
-      // 🔥 Highlight active session
+      // Highlight active session
       if (s.id === activeId) {
         div.style.background = "#4CAF50";
       }
@@ -104,12 +103,12 @@ function loadSessionsUI() {
 
           const sessionId = s.id;
 
-          // 🔥 CONFIRMATION POPUP
+          // CONFIRMATION POPUP
           const confirmDelete = confirm("Are you sure you want to delete this chat?");
           if (!confirmDelete) return;
 
           try {
-            // 🔥 FIX 1: Prevent unnecessary API call (only valid sessions)
+            // FIX 1: Prevent unnecessary API call (only valid sessions)
             if (sessionId.includes("_")) {
               await fetch(`${API_BASE_URL}/api/history/${sessionId}`, {
                 method: "DELETE"
@@ -122,22 +121,22 @@ function loadSessionsUI() {
             console.error("❌ Backend delete failed:", err);
           }
 
-          // 🔥 DELETE FROM LOCAL STORAGE
+          // DELETE FROM LOCAL STORAGE
           sessions.splice(index, 1);
 
-          // 🔥 FIX 2: Auto-switch to another session (better UX)
+          // FIX 2: Auto-switch to another session (better UX)
           const newActiveSession = sessions.length ? sessions[0].id : null;
 
           chrome.storage.local.set(
             { sessions, session_id: newActiveSession },
             () => {
 
-              // 🔥 CLEAR CHAT UI IF ACTIVE SESSION DELETED
+              // CLEAR CHAT UI IF ACTIVE SESSION DELETED
               if (sessionId === activeId) {
                 chatDiv.innerHTML = "";
               }
 
-              // 🔥 FIX 3: Update status message
+              // FIX 3: Update status message
               const statusDiv = document.getElementById("status");
               if (statusDiv) {
                 statusDiv.textContent = "Chat deleted";
@@ -154,14 +153,14 @@ function loadSessionsUI() {
        text.ondblclick = () => {
           const newName = prompt("Rename chat:", s.title);
 
-          // 🔥 VALIDATION
+          // VALIDATION
           if (!newName || !newName.trim()) {
             return; // ignore empty or cancel
           }
 
           const trimmed = newName.trim();
 
-          // 🔥 OPTIONAL: LIMIT LENGTH
+          // OPTIONAL: LIMIT LENGTH
           s.title = trimmed.slice(0, 50);
 
           chrome.storage.local.set({ sessions }, () => {
@@ -182,15 +181,15 @@ function loadSessionsUI() {
 }
 
 // ==============================
-// 🔹 LOAD CHAT HISTORY (UPDATED FIX)
+// LOAD CHAT HISTORY (UPDATED FIX)
 // ==============================
 async function loadSession(sessionId) {
   chatDiv.innerHTML = "";
 
-  // 🔥 SET ACTIVE SESSION
+  // SET ACTIVE SESSION
   chrome.storage.local.set({ session_id: sessionId });
 
-  // 🔥 IMPORTANT FIX (ADDED)
+  // IMPORTANT FIX (ADDED)
   loadSessionsUI();
 
   try {
@@ -214,7 +213,7 @@ async function loadSession(sessionId) {
 }
 
 // ==============================
-// 🔹 AUTO LOAD YOUTUBE URL
+// AUTO LOAD YOUTUBE URL
 // ==============================
 async function loadYoutubeUrl() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -225,7 +224,7 @@ async function loadYoutubeUrl() {
 }
 
 // ==============================
-// 🔹 LOGIN
+// LOGIN
 // ==============================
 loginBtn.onclick = () => {
   chrome.identity.getAuthToken({ interactive: true }, async (token) => {
@@ -257,7 +256,7 @@ loginBtn.onclick = () => {
 };
 
 // ==============================
-// 🔹 LOGOUT
+// LOGOUT
 // ==============================
 logoutBtn.onclick = () => {
   chrome.storage.local.clear(() => {
@@ -267,7 +266,7 @@ logoutBtn.onclick = () => {
 };
 
 // ==============================
-// 🔹 LOAD USER
+// LOAD USER
 // ==============================
 function loadUser() {
   chrome.storage.local.get(["token", "email"], (data) => {
@@ -280,7 +279,7 @@ function loadUser() {
 }
 
 // ==============================
-// 🔹 UI UPDATE
+// UI UPDATE
 // ==============================
 function updateUI(email) {
   if (email) {
@@ -295,7 +294,7 @@ function updateUI(email) {
 }
 
 // ==============================
-// 🔹 ADD MESSAGE
+// ADD MESSAGE
 // ==============================
 function addMessage(text, type) {
   const div = document.createElement("div");
@@ -307,14 +306,14 @@ function addMessage(text, type) {
 }
 
 // ==============================
-// 🔹 BUTTON ENABLE
+// BUTTON ENABLE
 // ==============================
 questionInput.addEventListener("input", () => {
   askBtn.disabled = !questionInput.value.trim();
 });
 
 // ==============================
-// 🔥 ASK BUTTON (UPDATED)
+// ASK BUTTON (UPDATED)
 // ==============================
 askBtn.onclick = async () => {
   const question = questionInput.value.trim();
@@ -377,7 +376,7 @@ askBtn.onclick = async () => {
 
       buffer += decoder.decode(value, { stream: true });
 
-      // 🔥 process FULL event only when \n\n appears
+      // process FULL event only when \n\n appears
       if (!buffer.includes("\n\n")) continue;
 
       const parts = buffer.split("\n\n");
@@ -408,7 +407,7 @@ askBtn.onclick = async () => {
 
         const chunkText = lines.join("\n");
 
-        // 🔥 CRITICAL FIX: APPEND (NOT REPLACE)
+        // CRITICAL FIX: APPEND (NOT REPLACE)
         finalAnswer += chunkText;
 
         botMsg.innerHTML = finalAnswer.replace(/\n/g, "<br>");
@@ -416,7 +415,7 @@ askBtn.onclick = async () => {
       }
     }
 
-    // 🔥 FINAL BUFFER PROCESS (VERY IMPORTANT)
+    // FINAL BUFFER PROCESS (VERY IMPORTANT)
     if (buffer.trim()) {
       let lines = buffer.split("\n");
 
@@ -472,7 +471,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadYoutubeUrl();
   loadSessionsUI();
 
-  // 🔥 LOAD LAST CHAT AUTOMATICALLY
+  // LOAD LAST CHAT AUTOMATICALLY
   chrome.storage.local.get(["session_id"], (res) => {
     if (res.session_id) {
       loadSession(res.session_id);
