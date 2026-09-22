@@ -11,6 +11,10 @@ const userEmailSpan = document.getElementById("user-email");
 
 const sessionListDiv = document.getElementById("sessionList");
 
+// SIDEBAR TOGGLE (NEW)
+const toggleBtn = document.getElementById("toggle-sidebar");
+const sidebar = document.getElementById("sidebar");
+
 // ==============================
 // SESSION MANAGEMENT (NEW)
 // ==============================
@@ -41,23 +45,23 @@ async function getVideoTitle(videoUrl) {
     const data = await res.json();
     return data.title;
   } catch (e) {
-    console.error("❌ Failed to fetch title");
+    console.error(" Failed to fetch title");
     return "YouTube Video";
   }
 }
 
 
 async function saveSessionMeta(sessionId, question) {
-  chrome.storage.local.get(["sessions"], async (res) => {
-    let sessions = res.sessions || [];
+  const { email } = await chrome.storage.local.get(["email"]);
+  const key = `sessions_${email}`;
+
+  chrome.storage.local.get([key], async (res) => {
+    let sessions = res[key] || [];
 
     const exists = sessions.find(s => s.id === sessionId);
 
     if (!exists) {
-
       const videoUrl = document.getElementById("youtube-url").value;
-
-      // FETCH VIDEO TITLE
       const title = await getVideoTitle(videoUrl);
 
       sessions.unshift({
@@ -65,123 +69,85 @@ async function saveSessionMeta(sessionId, question) {
         title: title.slice(0, 50)
       });
 
-      chrome.storage.local.set({ sessions });
+      chrome.storage.local.set({ [key]: sessions });
     }
   });
 }
 
+
 function loadSessionsUI() {
-  chrome.storage.local.get(["sessions", "session_id"], (res) => {
-    const sessions = res.sessions || [];
-    const activeId = res.session_id;
+  chrome.storage.local.get(["email", "session_id"], (meta) => {
+    const email = meta.email;
+    const activeId = meta.session_id;
 
-    sessionListDiv.innerHTML = "";
+    if (!email) {
+      sessionListDiv.innerHTML = "";
+      return;
+    }
 
-    sessions.forEach((s, index) => {
-      const div = document.createElement("div");
-      div.className = "session";
+    const key = `sessions_${email}`;
 
-      // Highlight active session
-      if (s.id === activeId) {
-        div.style.background = "#4CAF50";
-      }
+    chrome.storage.local.get([key], (res) => {
+      const sessions = res[key] || [];
 
-      // ===== TEXT =====
-      const text = document.createElement("span");
-      text.textContent = s.title;
+      sessionListDiv.innerHTML = "";
 
-      // ===== DELETE BUTTON =====
-      const del = document.createElement("span");
-      del.textContent = " ❌";
-      del.style.cursor = "pointer";
-      del.style.float = "right";
+      sessions.forEach((s, index) => {
+        const div = document.createElement("div");
+        div.className = "session";
 
+        if (s.id === activeId) {
+          div.style.background = "#4CAF50";
+        }
 
+        const text = document.createElement("span");
+        text.textContent = s.title;
 
-      del.onclick = async (e) => {
+        const del = document.createElement("span");
+        del.textContent = " ❌";
+        del.style.cursor = "pointer";
+        del.style.float = "right";
+
+        // DELETE FIX
+        del.onclick = async (e) => {
           e.stopPropagation();
 
-          const sessionId = s.id;
-
-          // CONFIRMATION POPUP
-          const confirmDelete = confirm("Are you sure you want to delete this chat?");
+          const confirmDelete = confirm("Are you sure?");
           if (!confirmDelete) return;
 
-          try {
-            // FIX 1: Prevent unnecessary API call (only valid sessions)
-            if (sessionId.includes("_")) {
-              await fetch(`${API_BASE_URL}/api/history/${sessionId}`, {
-                method: "DELETE"
-              });
-            }
-
-            console.log("✅ Deleted from backend:", sessionId);
-
-          } catch (err) {
-            console.error("❌ Backend delete failed:", err);
-          }
-
-          // DELETE FROM LOCAL STORAGE
           sessions.splice(index, 1);
 
-          // FIX 2: Auto-switch to another session (better UX)
-          const newActiveSession = sessions.length ? sessions[0].id : null;
-
-          chrome.storage.local.set(
-            { sessions, session_id: newActiveSession },
-            () => {
-
-              // CLEAR CHAT UI IF ACTIVE SESSION DELETED
-              if (sessionId === activeId) {
-                chatDiv.innerHTML = "";
-              }
-
-              // FIX 3: Update status message
-              const statusDiv = document.getElementById("status");
-              if (statusDiv) {
-                statusDiv.textContent = "Chat deleted";
-              }
-
-              loadSessionsUI();
-            }
-          );
-      };
-
-
-      // ===== RENAME (DOUBLE CLICK) =====
-
-       text.ondblclick = () => {
-          const newName = prompt("Rename chat:", s.title);
-
-          // VALIDATION
-          if (!newName || !newName.trim()) {
-            return; // ignore empty or cancel
-          }
-
-          const trimmed = newName.trim();
-
-          // OPTIONAL: LIMIT LENGTH
-          s.title = trimmed.slice(0, 50);
-
-          chrome.storage.local.set({ sessions }, () => {
+          chrome.storage.local.set({ [key]: sessions }, () => {
             loadSessionsUI();
           });
-       };
+        };
 
+        text.ondblclick = () => {
+          const newName = prompt("Rename chat:", s.title);
+          if (!newName || !newName.trim()) return;
 
-      // ===== CLICK LOAD =====
-      div.onclick = () => loadSession(s.id);
+          s.title = newName.trim().slice(0, 50);
 
-      div.appendChild(text);
-      div.appendChild(del);
+          chrome.storage.local.set({ [key]: sessions }, () => {
+            loadSessionsUI();
+          });
+        };
 
-      sessionListDiv.appendChild(div);
+        div.onclick = () => loadSession(s.id);
+
+        div.appendChild(text);
+        div.appendChild(del);
+
+        sessionListDiv.appendChild(div);
+      });
     });
   });
 }
 
+
+
 // ==============================
-// LOAD CHAT HISTORY (UPDATED FIX)
+// LOAD CHAT HISTORY
 // ==============================
 async function loadSession(sessionId) {
   chatDiv.innerHTML = "";
@@ -189,7 +155,7 @@ async function loadSession(sessionId) {
   // SET ACTIVE SESSION
   chrome.storage.local.set({ session_id: sessionId });
 
-  // IMPORTANT FIX (ADDED)
+
   loadSessionsUI();
 
   try {
@@ -203,12 +169,12 @@ async function loadSession(sessionId) {
       if (item.answer) addMessage(item.answer, "bot");
     });
     } else {
-      console.log("⚠️ No history found for session:", sessionId);
+      console.log(" No history found for session:", sessionId);
     }
 
 
   } catch (e) {
-    console.error("❌ Failed to load history", e);
+    console.error(" Failed to load history", e);
   }
 }
 
@@ -226,11 +192,12 @@ async function loadYoutubeUrl() {
 // ==============================
 // LOGIN
 // ==============================
+
 loginBtn.onclick = () => {
   chrome.identity.getAuthToken({ interactive: true }, async (token) => {
 
     if (chrome.runtime.lastError || !token) {
-      alert("❌ Login failed");
+      alert(" Login failed");
       return;
     }
 
@@ -241,16 +208,30 @@ loginBtn.onclick = () => {
 
       const user = await res.json();
 
+      // SAVE USER DATA
       chrome.storage.local.set({
         token,
         email: user.email
-      });
+      }, () => {
 
-      updateUI(user.email);
+        // UPDATE UI
+        updateUI(user.email);
+
+        // LOAD SIDEBAR SESSIONS (IMPORTANT FIX)
+        loadSessionsUI();
+
+        // LOAD LAST OPENED CHAT
+        chrome.storage.local.get(["session_id"], (res) => {
+          if (res.session_id) {
+            loadSession(res.session_id);
+          }
+        });
+
+      });
 
     } catch (e) {
       console.error(e);
-      alert("❌ Login failed");
+      alert(" Login failed");
     }
   });
 };
@@ -259,11 +240,33 @@ loginBtn.onclick = () => {
 // LOGOUT
 // ==============================
 logoutBtn.onclick = () => {
-  chrome.storage.local.clear(() => {
+  chrome.storage.local.remove(["token", "email"], () => {
     updateUI(null);
     chatDiv.innerHTML = "";
+    sessionListDiv.innerHTML = "";
   });
 };
+
+// ==============================
+// SIDEBAR TOGGLE LOGIC
+// ==============================
+if (toggleBtn && sidebar) {
+  toggleBtn.onclick = () => {
+    sidebar.classList.toggle("hidden");
+
+    // Change icon
+    if (sidebar.classList.contains("hidden")) {
+      toggleBtn.textContent = "→";
+    } else {
+      toggleBtn.textContent = "☰";
+    }
+
+    // Save state
+    chrome.storage.local.set({
+      sidebar_hidden: sidebar.classList.contains("hidden")
+    });
+  };
+}
 
 // ==============================
 // LOAD USER
@@ -284,10 +287,18 @@ function loadUser() {
 function updateUI(email) {
   if (email) {
     userEmailSpan.textContent = email;
+
+    // IMPORTANT: update tooltip
+    userEmailSpan.title = email;
+
     loginBtn.style.display = "none";
     logoutBtn.style.display = "inline";
   } else {
     userEmailSpan.textContent = "Not logged in";
+
+    // IMPORTANT: update tooltip
+    userEmailSpan.title = "Not logged in";
+
     loginBtn.style.display = "block";
     logoutBtn.style.display = "none";
   }
@@ -301,7 +312,7 @@ function addMessage(text, type) {
   div.className = `msg ${type}`;
   div.textContent = text;
   chatDiv.appendChild(div);
-  chatDiv.scrollTop = chatDiv.scrollHeight;
+  chatDiv.scrollTo({ top: chatDiv.scrollHeight, behavior: "smooth" });
   return div;
 }
 
@@ -340,7 +351,7 @@ askBtn.onclick = async () => {
   addMessage(question, "user");
   questionInput.value = "";
 
-  const botMsg = addMessage("⏳ Processing video...", "bot");
+  const botMsg = addMessage(" Processing video...", "bot");
 
   try {
     const response = await fetch(`${API_BASE_URL}/api/ask-stream`, {
@@ -357,7 +368,7 @@ askBtn.onclick = async () => {
     });
 
     if (!response.ok) {
-      botMsg.textContent = "❌ Server error";
+      botMsg.textContent = " Server error";
       return;
     }
 
@@ -407,15 +418,15 @@ askBtn.onclick = async () => {
 
         const chunkText = lines.join("\n");
 
-        // CRITICAL FIX: APPEND (NOT REPLACE)
+        // APPEND (NOT REPLACE)
         finalAnswer += chunkText;
 
         botMsg.innerHTML = finalAnswer.replace(/\n/g, "<br>");
-        chatDiv.scrollTop = chatDiv.scrollHeight;
+        chatDiv.scrollTo({ top: chatDiv.scrollHeight,behavior: "smooth" });
       }
     }
 
-    // FINAL BUFFER PROCESS (VERY IMPORTANT)
+    // FINAL BUFFER PROCESS
     if (buffer.trim()) {
       let lines = buffer.split("\n");
 
@@ -428,48 +439,138 @@ askBtn.onclick = async () => {
       botMsg.innerHTML = finalAnswer.replace(/\n/g, "<br>");
     }
 
-    // ===== METRICS =====
+    // ===== FINAL METRICS UI (WITH STRONG FINAL SCORE) =====
     if (metricsData) {
+
+      const oldBox = botMsg.querySelector(".eval-box");
+      if (oldBox) oldBox.remove();
+
       const evalBox = document.createElement("div");
+      evalBox.className = "eval-box";
 
       evalBox.style.fontSize = "12px";
-      evalBox.style.padding = "6px";
-      evalBox.style.borderRadius = "6px";
-      evalBox.style.marginTop = "8px";
+      evalBox.style.padding = "12px";
+      evalBox.style.borderRadius = "10px";
+      evalBox.style.marginTop = "10px";
+      evalBox.style.lineHeight = "1.6";
+      evalBox.style.borderLeft = "5px solid #333";
 
-      evalBox.style.background =
-        (metricsData.confidence ?? 0) > 0.7
-          ? "#d4edda"
-          : "#f8d7da";
+      // ===== VALUES =====
+      const confidence = metricsData.confidence ?? 0;
+      const llmConfidence = metricsData.llm_confidence ?? 0;
+      const hallucination = metricsData.hallucination_score ?? 0;
+      const contextQuality = metricsData.context_quality ?? 0;
+      const finalScore = metricsData.final_score ?? 0;
 
-      evalBox.innerText =
-        "📊 Evaluation:\n" +
-        "Confidence: " + (metricsData.confidence ?? "N/A") + "\n" +
-        "Context Length: " + (metricsData.context_length ?? "N/A") + "\n" +
-        "Context Quality: " + (metricsData.context_quality ?? "N/A") + "\n" +
-        "Final Score: " + (metricsData.final_score ?? "N/A") + "\n" +
-        "Answer Length: " + (metricsData.answer_length ?? "N/A") + "\n" +
-        "Retrieval Count: " + (metricsData.retrieval_count ?? "N/A") + "\n" +
-        "Source: " + (metricsData.source ?? "N/A");
+      const contextLength = metricsData.context_length ?? 0;
+      const retrievalCount = metricsData.retrieval_count ?? 0;
+      const answerLength = metricsData.answer_length ?? 0;
+      const source = (metricsData.source || "Transcript").toLowerCase();
 
-      chatDiv.appendChild(evalBox);
+      const fmt = (v) => (typeof v === "number" ? v.toFixed(2) : "N/A");
 
-      setTimeout(() => evalBox.remove(), 40000);
+      // ===== STATUS =====
+      let status = "Poor";
+      let statusColor = "#dc3545"; // Red (Bootstrap "danger")
+
+      if (finalScore >= 0.7) {
+        status = "Good";
+        statusColor = "#28a745";  // Green (Bootstrap "success")
+      } else if (finalScore >= 0.4) {
+        status = "Medium";
+        statusColor = "#ffc107";  // Yellow / Amber (Bootstrap "warning")
+      }
+
+      // ===== SOURCE =====
+    let sourceLabel = "Transcript";
+
+    if (source.includes("wikipedia") && source.includes("tavily")) {
+      sourceLabel = "Wikipedia + Tavily";
+    }
+    else if (source.includes("wikipedia")) {
+      sourceLabel = "Wikipedia";
+    }
+    else if (source.includes("tavily")) {
+      sourceLabel = "Tavily";
+    }
+
+      // ===== FINAL SCORE BAR =====
+      const safeScore = Math.max(0, Math.min(finalScore, 1));
+      const scorePercent = Math.round(safeScore * 100);
+
+      // ===== UI =====
+      evalBox.innerHTML = `
+        <b>📊 Evaluation (${status})</b><br><br>
+
+        <!-- 🔥 FINAL SCORE (BIG + VISUAL) -->
+        <div style="font-size:16px; font-weight:bold; color:${statusColor};">
+          ⭐ Final Score: ${fmt(finalScore)} (${scorePercent}%)
+        </div>
+
+        <!-- 🔥 PROGRESS BAR -->
+        <div style="background:#eee; border-radius:6px; overflow:hidden; margin:6px 0 10px 0;">
+          <div style="
+            width:${scorePercent}%;
+            background:${statusColor};
+            height:8px;
+          "></div>
+        </div>
+
+        🔹 Confidence: ${fmt(confidence)}<br>
+        🔹 LLM Match: ${fmt(llmConfidence)}<br>
+        🔹 Hallucination Risk: ${fmt(hallucination)}<br>
+        🔹 Context Quality: ${fmt(contextQuality)}<br><br>
+
+        🔹 Context Length: ${contextLength}<br>
+        🔹 Retrieved Chunks: ${retrievalCount}<br>
+        🔹 Answer Length: ${answerLength}<br>
+        🔹 Source: ${sourceLabel}
+      `;
+
+      // ===== BACKGROUND =====
+      if (finalScore >= 0.7) {
+        evalBox.style.background = "#d4edda";
+      } else if (finalScore >= 0.4) {
+        evalBox.style.background = "#fff3cd";
+      } else {
+        evalBox.style.background = "#f8d7da";
+      }
+
+      botMsg.appendChild(evalBox);
+
+      chatDiv.scrollTo({ top: chatDiv.scrollHeight, behavior: "smooth" });
+
+      setTimeout(() => {
+        if (evalBox) evalBox.remove();
+      }, 40000);
     }
 
   } catch (err) {
     console.error(err);
-    botMsg.textContent = "❌ Failed";
+    botMsg.textContent = " Failed";
   }
 };
 
 // ==============================
-// 🔹 INIT
+// INIT
 // ==============================
 document.addEventListener("DOMContentLoaded", async () => {
   loadUser();
   await loadYoutubeUrl();
-  loadSessionsUI();
+
+  chrome.storage.local.get(["email"], (res) => {
+    if (res.email) {
+      loadSessionsUI();
+    }
+  });
+
+  // RESTORE SIDEBAR STATE
+  chrome.storage.local.get(["sidebar_hidden"], (res) => {
+    if (res.sidebar_hidden && sidebar && toggleBtn) {
+      sidebar.classList.add("hidden");
+      toggleBtn.textContent = "→";
+   }
+  });
 
   // LOAD LAST CHAT AUTOMATICALLY
   chrome.storage.local.get(["session_id"], (res) => {
