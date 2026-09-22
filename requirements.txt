@@ -30,7 +30,6 @@ google-cloud-storage
 python-dotenv
 pydantic
 
-# 🔥 IMPORTANT ADDITIONS
 aiofiles
 orjson
 httpx
