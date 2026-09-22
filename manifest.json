@@ -2,14 +2,15 @@
   "manifest_version": 3,
   "name": "YouTube AI Assistant",
   "description": "Ask AI about YouTube videos",
-  "version": "1.1",
+  "version": "1.2",
 
   "permissions": [
     "identity",
     "storage",
     "activeTab",
     "tabs",
-    "scripting"
+    "scripting",
+    "sidePanel"
   ],
 
   "host_permissions": [
@@ -20,8 +21,11 @@
   ],
 
   "action": {
-    "default_popup": "popup.html",
     "default_title": "YouTube AI Assistant"
+  },
+
+  "side_panel": {
+    "default_path": "popup.html"
   },
 
   "background": {
