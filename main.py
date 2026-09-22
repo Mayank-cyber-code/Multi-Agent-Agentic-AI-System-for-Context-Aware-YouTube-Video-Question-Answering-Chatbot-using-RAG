@@ -5,10 +5,12 @@ import re
 import shutil
 import traceback
 from typing import TypedDict
-import json  
+import json
 from datetime import datetime
+import math
 
-print("🔥 Starting FastAPI app...")
+
+print(" Starting FastAPI app...")
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,7 +36,7 @@ from langsmith import traceable
 
 from google.cloud import storage
 
-print("🚀 App starting...")
+print(" App starting...")
 
 # ===== ENV =====
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -61,12 +63,12 @@ def safe_llm_call(prompt, task="qa", retries=2):
         try:
             return get_llm(task).invoke(prompt).content
         except Exception as e:
-            print(f"❌ LLM error (attempt {i+1}):", e)
+            print(f" LLM error (attempt {i+1}):", e)
     return "Error generating response"
 
 def search_tavily(query):
     try:
-        print("🌐 Tavily search running...")
+        print(" Tavily search running...")
 
         res = requests.post(
             "https://api.tavily.com/search",
@@ -88,7 +90,7 @@ def search_tavily(query):
         return "\n\n".join(results)
 
     except Exception as e:
-        print("❌ Tavily error:", e)
+        print(" Tavily error:", e)
         return None
 
 def cosine_similarity(vec1, vec2):
@@ -117,13 +119,27 @@ def root():
     return {"status": "running"}
 
 # ===== STATE =====
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
     question: str
     plan: str
     tool_output: str
     memory_context: str
     final_answer: str
-    timestamps: list  
+    timestamps: list
+
+    # ADD THESE (CRITICAL)
+    confidence: float
+    llm_confidence: float
+    hallucination_score: float
+    context_length: int
+    retrieval_count: int
+    context_quality: float
+    final_score: float
+    answer_length: int
+    needs_fallback: bool
+
+    used_wikipedia: bool
+    used_tavily: bool
 
 # ===== HELPERS =====
 def extract_video_id(url):
@@ -142,20 +158,20 @@ def save_transcript(video_id, transcript):
         bucket = get_bucket()
         blob = bucket.blob(f"transcripts/{video_id}.txt")
         blob.upload_from_string(transcript)
-        print("✅ Transcript saved")
+        print(" Transcript saved")
     except Exception as e:
-        print("❌ Save transcript error:", e)
+        print(" Save transcript error:", e)
 
 def load_transcript(video_id):
     try:
         bucket = get_bucket()
         blob = bucket.blob(f"transcripts/{video_id}.txt")
         if blob.exists():
-            print("📥 Loading transcript from GCS")
+            print(" Loading transcript from GCS")
             return blob.download_as_text()
         return None
     except Exception as e:
-        print("❌ Load transcript error:", e)
+        print(" Load transcript error:", e)
         return None
 
 # ===== VECTOR STORE =====
@@ -180,12 +196,12 @@ def load_vectorstore(video_id):
             allow_dangerous_deserialization=True
         )
     except Exception as e:
-        print("❌ Load vector error:", e)
+        print(" Load vector error:", e)
         return None
 
 def save_vectorstore(video_id, store):
     try:
-        print("📦 Saving vector:", video_id)
+        print(" Saving vector:", video_id)
 
         bucket = get_bucket()
         tmp_dir = f"/tmp/{video_id}"
@@ -195,9 +211,9 @@ def save_vectorstore(video_id, store):
 
         bucket.blob(f"vectors/{video_id}.zip").upload_from_filename(f"{tmp_dir}.zip")
 
-        print("✅ Vector saved to GCS")
+        print(" Vector saved to GCS")
     except Exception as e:
-        print("❌ GCS vector save error:", e)
+        print(" GCS vector save error:", e)
 
 # ===== MEMORY =====
 def load_memory(user_id):
@@ -221,12 +237,12 @@ def load_memory(user_id):
             allow_dangerous_deserialization=True
         )
     except Exception as e:
-        print("❌ Load memory error:", e)
+        print(" Load memory error:", e)
         return None
 
 def save_memory(user_id, question, answer):
     try:
-        print("💾 Saving memory:", user_id)
+        print(" Saving memory:", user_id)
 
         bucket = get_bucket()
         embeddings = get_embeddings()
@@ -245,9 +261,9 @@ def save_memory(user_id, question, answer):
 
         bucket.blob(f"memory/{user_id}.zip").upload_from_filename(f"{tmp_dir}.zip")
 
-        print("✅ Memory saved to GCS")
+        print(" Memory saved to GCS")
     except Exception as e:
-        print("❌ GCS memory save error:", e)
+        print(" GCS memory save error:", e)
 
 def retrieve_memory(user_id, query):
     try:
@@ -257,7 +273,7 @@ def retrieve_memory(user_id, query):
         docs = store.similarity_search(query, k=3)
         return "\n".join([d.page_content for d in docs])
     except Exception as e:
-        print("❌ Retrieve memory error:", e)
+        print(" Retrieve memory error:", e)
         return ""
 
 # ===== CHAT HISTORY =====
@@ -280,10 +296,10 @@ def save_chat_history(session_id, question, answer):
 
         blob.upload_from_string(json.dumps(history, indent=2))
 
-        print("💾 Chat history saved")
+        print(" Chat history saved")
 
     except Exception as e:
-        print("❌ Chat history error:", e)
+        print(" Chat history error:", e)
 
 
 def load_chat_history(session_id):
@@ -297,63 +313,63 @@ def load_chat_history(session_id):
         return json.loads(blob.download_as_text())
 
     except Exception as e:
-        print("❌ Load history error:", e)
+        print(" Load history error:", e)
         return []
 
 
 
 # ===== NORMALIZER =====
 def normalize_apify_data(data):
-    print("🧠 Normalizing Apify response...")
+    print(" Normalizing Apify response...")
 
     try:
-        print("🔎 Incoming type:", type(data))
+        print(" Incoming type:", type(data))
 
         # Case 1: list
         if isinstance(data, list):
-            print("📦 Data is LIST, length:", len(data))
+            print(" Data is LIST, length:", len(data))
 
             if len(data) > 0:
                 first = data[0]
-                print("🔎 First element keys:", list(first.keys()) if isinstance(first, dict) else "Not dict")
+                print(" First element keys:", list(first.keys()) if isinstance(first, dict) else "Not dict")
 
                 if isinstance(first, dict):
 
-                    # MOST IMPORTANT CASE (YOUR CASE)
+                    # MOST IMPORTANT CASE
                     if "data" in first:
-                        print("✅ Found 'data' inside list[0]")
+                        print(" Found 'data' inside list[0]")
                         return first["data"]
 
                     if "items" in first:
-                        print("✅ Found 'items' inside list[0]")
+                        print(" Found 'items' inside list[0]")
                         return first["items"]
 
                     if "text" in first:
-                        print("✅ Already normalized list")
+                        print(" Already normalized list")
                         return data
 
         # Case 2: dict
         if isinstance(data, dict):
-            print("📦 Data is DICT, keys:", list(data.keys()))
+            print(" Data is DICT, keys:", list(data.keys()))
 
             if "items" in data:
-                print("✅ Found 'items' in dict")
+                print(" Found 'items' in dict")
                 return data["items"]
 
             if "data" in data:
                 if isinstance(data["data"], list):
-                    print("✅ Found 'data' list in dict")
+                    print(" Found 'data' list in dict")
                     return data["data"]
 
                 if isinstance(data["data"], dict) and "items" in data["data"]:
-                    print("✅ Found nested data->items")
+                    print(" Found nested data->items")
                     return data["data"]["items"]
 
-        print("❌ Could not normalize Apify response")
+        print(" Could not normalize Apify response")
         return None
 
     except Exception as e:
-        print("❌ Normalize error:", e)
+        print(" Normalize error:", e)
         return None
 
 # ===== PARSER =====
@@ -367,7 +383,7 @@ def parse_apify_transcript(data):
     valid_items = 0
     skipped_items = 0
 
-    print("🔎 Total items received:", total_items)
+    print(" Total items received:", total_items)
 
     # ===== CHUNK SCORING FUNCTION =====
     def score_chunk(text):
@@ -452,19 +468,19 @@ def parse_apify_transcript(data):
                 valid_items += 1
 
                 if valid_items <= 5:
-                    print(f"✅ Valid {valid_items}: [{start_val}] {clean_text[:80]}")
+                    print(f" Valid {valid_items}: [{start_val}] {clean_text[:80]}")
 
         except Exception as e:
             skipped_items += 1
-            print("⚠️ Error parsing item:", e)
+            print(" Error parsing item:", e)
 
-    print("📊 PARSE STATS:")
+    print(" PARSE STATS:")
     print("   Total items:", total_items)
     print("   Valid items:", valid_items)
     print("   Skipped items:", skipped_items)
-    print("🧠 Documents created:", len(documents))
+    print(" Documents created:", len(documents))
 
-    # ===== SEMANTIC MERGE (FINAL FIX) =====
+    # ===== SEMANTIC MERGE =====
 
     merged_docs = []
     buffer = []
@@ -549,7 +565,7 @@ def parse_apify_transcript(data):
 
     documents = merged_docs
 
-    # ===== BUILD TRANSCRIPT (FIXED) =====
+    # ===== BUILD TRANSCRIPT =====
     transcript_lines = []
 
     for doc in documents:
@@ -572,22 +588,22 @@ def parse_apify_transcript(data):
 
     # ===== VALIDATION =====
     if not documents:
-        print("❌ No documents at all → fallback")
+        print(" No documents at all → fallback")
         return None, None
 
     if not transcript or len(transcript.strip()) < 50:
-        print("⚠️ Transcript too small → fallback")
+        print("️ Transcript too small → fallback")
         return None, None
 
-    print("🧠 Transcript length:", len(transcript))
-    print("🔍 Preview (1000 chars):", transcript[:1000])
+    print(" Transcript length:", len(transcript))
+    print(" Preview (1000 chars):", transcript[:1000])
 
     return transcript, documents
 
 # ===== APIFY FETCH =====
 def fetch_transcript_apify(video_url):
     try:
-        print("🚀 Using Apify for transcript")
+        print(" Using Apify for transcript")
 
         video_url = clean_youtube_url(video_url)
 
@@ -597,76 +613,73 @@ def fetch_transcript_apify(video_url):
         # API CALL
         res = requests.post(url, json=payload, timeout=60)
 
-        # 🔍 BASIC LOGS
-        print("🔎 Status Code:", res.status_code)
-        print("🔎 Raw response (first 500 chars):", res.text[:500])
+        # BASIC LOGS
+        print(" Status Code:", res.status_code)
+        print(" Raw response (first 500 chars):", res.text[:500])
 
-        # ✅ HANDLE HTTP ERROR PROPERLY
+        # HANDLE HTTP ERROR PROPERLY
         if not res.ok:
-            print("❌ Apify HTTP error:", res.status_code)
+            print(" Apify HTTP error:", res.status_code)
             return None, None
 
-        # SAFE JSON PARSING (CRITICAL FIX)
+        # SAFE JSON PARSING
         try:
             raw_data = res.json()
-            print("✅ JSON parsed successfully")
+            print(" JSON parsed successfully")
         except Exception as e:
-            print("❌ JSON parse error:", e)
-            print("🔎 Raw text (500 chars):", res.text[:500])
+            print(" JSON parse error:", e)
+            print(" Raw text (500 chars):", res.text[:500])
             return None, None
 
-        print("🧠 Raw JSON type:", type(raw_data))
+        print(" Raw JSON type:", type(raw_data))
 
-        # NORMALIZE DATA (VERY IMPORTANT)
+        # NORMALIZE DATA
         data = normalize_apify_data(raw_data)
 
         if not data:
-            print("❌ Failed to extract transcript list after normalization")
+            print(" Failed to extract transcript list after normalization")
             return None, None
 
-        print("✅ Normalized items count:", len(data))
+        print(" Normalized items count:", len(data))
 
-        # 🔍 SHOW SAMPLE
+        # SHOW SAMPLE
         if len(data) > 0:
-            print("🔎 First normalized item:", data[0])
-            print("🔎 Last normalized item:", data[-1])
+            print(" First normalized item:", data[0])
+            print(" Last normalized item:", data[-1])
 
         # PARSE TRANSCRIPT
         transcript, documents = parse_apify_transcript(data)
 
         # HANDLE PARSE FAILURE
         if not transcript:
-            print("⚠️ Parser returned empty → fallback will trigger")
+            print("️ Parser returned empty → fallback will trigger")
             return None, None
 
-        print("✅ Transcript successfully parsed")
-        print("📊 Final document count:", len(documents))
+        print(" Transcript successfully parsed")
+        print(" Final document count:", len(documents))
 
         return transcript, documents
 
     except Exception as e:
-        print("❌ Apify error:", e)
+        print(" Apify error:", e)
         return None, None
 
 
-# ===== VIDEO PROCESS (UPDATED FIXES HERE) =====
-
-# GLOBAL CACHE (ADD THIS AT TOP OF FILE ONCE)
+# ===== VIDEO PROCESS=====
 VECTOR_CACHE = {}
 
-# ===== VIDEO PROCESS (UPDATED) =====
 def get_or_create_vectorstore(video_url):
     vid = extract_video_id(video_url)
 
     # ===== STEP 1: IN-MEMORY CACHE =====
     if vid in VECTOR_CACHE:
-        print("⚡ Using in-memory vector cache")
+        print(" Using in-memory vector cache")
         return VECTOR_CACHE[vid]
 
     # ===== STEP 2: LOAD FROM GCS =====
     store = load_vectorstore(vid)
     if store:
-        print("📦 Loaded vector from GCS")
+        print(" Loaded vector from GCS")
 
         VECTOR_CACHE[vid] = store  # cache it
         return store
@@ -675,7 +688,7 @@ def get_or_create_vectorstore(video_url):
     transcript = load_transcript(vid)
 
     if transcript:
-        print("⚡ Using cached transcript")
+        print(" Using cached transcript")
 
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=800,
@@ -694,7 +707,7 @@ def get_or_create_vectorstore(video_url):
         transcript, docs = fetch_transcript_apify(video_url)
 
         if not transcript:
-            print("⚠️ Using fallback (NOT saving)")
+            print(" Using fallback (NOT saving)")
             transcript = wikipedia.summary("YouTube video", sentences=3)
             docs = [Document(page_content=transcript, metadata={})]
         else:
@@ -705,11 +718,11 @@ def get_or_create_vectorstore(video_url):
 
     # IMPROVED CHUNKING
     split_docs = RecursiveCharacterTextSplitter(
-        chunk_size=800,        # improved
+        chunk_size=800,
         chunk_overlap=100
     ).split_documents(docs)
 
-    print("📊 Total chunks created:", len(split_docs))
+    print(" Total chunks created:", len(split_docs))
 
     # ===== STEP 5: CREATE VECTOR STORE =====
     store = FAISS.from_documents(split_docs, embeddings)
@@ -723,19 +736,44 @@ def get_or_create_vectorstore(video_url):
 
 
 def keyword_search(transcript, query):
-    words = query.lower().split()
     lines = transcript.split("\n")
+    words = query.lower().split()
 
     results = []
 
     for line in lines:
-        score = sum(1 for w in words if w in line.lower())
+        line_lower = line.lower()
 
-        # Match if at least half words match
+        score = sum(1 for w in words if w in line_lower)
+
         if score >= max(1, len(words) // 2):
-            results.append(line)
+            results.append((line, score))   # store score
 
-    return results[:5]
+    # SORT by score (highest first)
+    results.sort(key=lambda x: x[1], reverse=True)
+
+    # TAKE top 5 lines only
+    top_results = [line for line, score in results[:5]]
+
+    return top_results
+
+def compute_llm_confidence(answer, context):
+    try:
+        if not answer or not context:
+            return 0.0
+
+        embeddings = get_embeddings()
+
+        answer_vec = embeddings.embed_query(answer[:2000])
+        context_vec = embeddings.embed_query(context[:2000])
+
+        sim = cosine_similarity(answer_vec, context_vec)
+
+        return round(sim, 3)
+
+    except Exception as e:
+        print(" LLM confidence error:", e)
+        return 0.0
 
 # ===== AGENT =====
 def build_graph(store, user_id, transcript):
@@ -746,95 +784,54 @@ def build_graph(store, user_id, transcript):
     def planner(state):
         question = state["question"]
 
+        # ===== NEW DECISION PROMPT =====
         prompt = f"""
-        Decide how to answer this question.
+        You are deciding how to answer a user's question based on a video transcript.
 
-        Question: {question}
+        Question:
+        {question}
 
-        Options:
-        - retrieve → use transcript to answer specific questions
-        - summarize → give overall summary of the video
-        - memory → use past conversation
+        Choose one:
 
-        RULES:
+        - retrieve → if the answer can be found in specific parts of the transcript
+        - summarize → if the question requires understanding the overall video
+        - memory → if the question depends on past conversation
 
-        - If the question asks about specific facts, names, numbers, or details → choose "retrieve"
-        - If the question asks for explanation, overview, meaning, summary, or general understanding → choose "summarize"
-        - If the question depends on previous conversation → choose "memory"
-        
-        - If the question requires understanding the overall context or multiple parts of the video → choose "summarize"
-        - If the question can be answered using a few specific lines → choose "retrieve"
-        
-        IMPORTANT:
-        - Prefer "summarize" when the intent is to understand the full video or big picture
-        - Prefer "retrieve" when the intent is to extract precise information
+        IMPORTANT RULES:
+
+        - "why" or "how" questions are NOT automatically summarize
+        - If the question is about a specific topic, event, or entity → retrieve
+        - Only choose summarize if the question asks for:
+            * overall meaning
+            * full explanation of the video
+            * summary / overview
+
+        - If the answer can be extracted from a few parts → retrieve
+        - If the answer needs the whole transcript → summarize
 
         Return ONLY one word.
         """
 
         decision = safe_llm_call(prompt).strip().lower()
 
-        # ===== NEW: QUESTION CLASSIFICATION (ADD HERE) =====
-
-        classification_prompt = f"""
-        Classify this question:
-
-        Question: {question}
-
-        Options:
-        - factual
-        - explanatory
-        - conversational
-
-        Return ONLY one word.
-        """
-
-        q_type = safe_llm_call(classification_prompt).strip().lower()
-
-        print("🧠 Question Type:", q_type)
-
-        # ===== MAP TYPE TO PLAN =====
-        if q_type == "factual":
-            decision = "retrieve"
-        elif q_type == "explanatory":
-            decision = "summarize"
-        elif q_type == "conversational":
-            decision = "memory"
-
-        # ===== VALIDATION =====
+        # ===== SAFETY CHECK =====
         valid_plans = ["retrieve", "summarize", "memory"]
 
         if decision not in valid_plans:
-            print("⚠️ Invalid planner output → defaulting to retrieve")
+            print(" Invalid planner output → defaulting to retrieve")
             decision = "retrieve"
 
-
-
-        # ===== IMPROVED LENGTH-BASED CORRECTION =====
         q_len = len(question.split())
 
-        # only override for VERY short + weak queries
-        if q_len <= 4 and decision == "summarize":
-            print("⚠️ Very short query → forcing retrieve")
+        # very short vague queries → better to retrieve
+        if q_len <= 3 and decision == "summarize":
+            print(" Very short query → forcing retrieve")
             decision = "retrieve"
 
-        print("🧠 Plan:", decision)
+        print(" Final Plan:", decision)
 
         state["plan"] = decision
         return state
-
-    # ===== CONTEXT COMPRESSION =====
-    def compress_context(context, max_lines=20):
-        lines = context.split("\n")
-
-        # keep only non-empty lines
-        lines = [l for l in lines if l.strip()]
-
-        # keep original order
-        if len(lines) > max_lines:
-            half = max_lines // 2
-            lines = lines[:half] + lines[-half:]
-        return "\n".join(lines)
 
     # ===== TOOL =====
     @traceable(name="tool")
@@ -850,7 +847,7 @@ def build_graph(store, user_id, transcript):
             return None
 
         if plan == "summarize":
-            print("📘 Using FULL transcript (smart coverage + importance)")
+            print(" Using FULL transcript (smart coverage + importance)")
 
             splitter = RecursiveCharacterTextSplitter(
                 chunk_size=800,
@@ -892,19 +889,20 @@ def build_graph(store, user_id, transcript):
             state["retrieval_count"] = len(docs)
 
         elif plan == "memory":
-            print("🧠 Using MEMORY")
+            print(" Using MEMORY")
             docs = [
                 Document(
                     page_content=state.get("memory_context", "")
                 )
             ]
+            state["retrieval_count"] = len(docs)
 
         else:
-            print("🔎 Using VECTOR SEARCH")
+            print(" Using VECTOR SEARCH")
 
             total_chunks = store.index.ntotal if hasattr(store, "index") else 50
 
-            print("📊 Total vector chunks:", total_chunks)
+            print(" Total vector chunks:", total_chunks)
 
             def get_base_k(total_chunks):
                 if total_chunks <= 20:
@@ -918,11 +916,16 @@ def build_graph(store, user_id, transcript):
 
             base_k = get_base_k(total_chunks)
 
-            query_lower = query.lower()
+            memory_context = state.get("memory_context", "")
+            search_query = build_search_query(query, memory_context)
+
+            print(" Final search query (with memory):", search_query)
+
+            query_lower = search_query.lower()
             query_words = query_lower.split()
             query_len = len(query_words)
 
-            # ===== GENERIC QUERY ANALYSIS (NO HARDCODING) =====
+            # ===== GENERIC QUERY ANALYSIS =====
 
             # short query → usually vague
             is_short = query_len <= 5
@@ -930,12 +933,12 @@ def build_graph(store, user_id, transcript):
             # low information query (repeated / weak words)
             is_low_info = len(set(query_words)) <= 3
 
-            # question structure detection (generic)
+            # question structure detection
             question_starters = {"who", "what", "which", "whom", "whose", "where", "when"}
             starts_like_question = query_words[0] in question_starters if query_words else False
 
 
-            # ===== FINAL K (FIXED) =====
+            # ===== FINAL K =====
             k = base_k
 
             # slight boost for very short queries
@@ -944,21 +947,19 @@ def build_graph(store, user_id, transcript):
 
             k = min(k, total_chunks)
 
-            # ===== ENTITY-LIKE DETECTION (GENERIC) =====
+            # ===== ENTITY-LIKE DETECTION =====
             is_entity_like = is_short and starts_like_question
 
-            search_query = query
-
             if is_entity_like:
-                print("🧠 Entity-like query → boosting semantic meaning")
-                search_query = query + " identity role context details"
+                print(" Entity-like query → boosting semantic meaning")
+                search_query = search_query + " identity role context details"
 
             # ===== FINAL SEMANTIC SEARCH =====
             semantic_docs = store.similarity_search(search_query, k=k)
 
 
             # ===== LIMIT KEYWORD IMPACT =====
-            keyword_results = keyword_search(transcript, query)
+            keyword_results = keyword_search(transcript, search_query)
 
             keyword_docs = []
 
@@ -983,7 +984,7 @@ def build_graph(store, user_id, transcript):
                     seen.add(content)
                     unique_docs.append(d)
 
-            # ===== STEP 3: SEMANTIC RE-RANK (IMPORTANT FIX) =====
+            # ===== STEP 3: SEMANTIC RE-RANK =====
             def semantic_score(doc, query):
                 doc_words = set(doc.page_content.lower().split())
                 query_words = set(query.lower().split())
@@ -1006,17 +1007,15 @@ def build_graph(store, user_id, transcript):
 
             state["retrieval_count"] = len(docs)
 
-            print(f"📊 Final docs after adaptive retrieval: {len(docs)}")
+            print(f" Final docs after adaptive retrieval: {len(docs)}")
 
-        # BOOST MEMORY INTO CONTEXT (ONLY IF RELEVANT)
-        if state.get("memory_context"):
-            context = "Previous conversation:\n" + state["memory_context"] + "\n\n"
-        else:
-            context = ""
+        # ===== BUILD CONTEXT (RETRIEVAL FIRST) =====
+        context = ""
 
         timestamps = []
-        timestamps_set = set()  # NEW (fast lookup)
+        timestamps_set = set()
 
+        # 1. ADD RETRIEVED CHUNKS FIRST
         for d in docs:
             ts = d.metadata.get("start")
             content = d.page_content.strip()
@@ -1027,41 +1026,49 @@ def build_graph(store, user_id, transcript):
             if ts is not None:
                 context += f"[{int(ts)}s] {content}\n"
 
-                # OPTIMIZED DUPLICATE CHECK
                 if ts not in timestamps_set:
                     timestamps.append(ts)
                     timestamps_set.add(ts)
-
             else:
                 context += f"{content}\n"
+
+        # 2. ADD MEMORY (LIMITED TO LATEST)
+        def compress_memory(memory, max_lines=12):
+            lines = memory.split("\n")
+            lines = [l for l in lines if l.strip()]
+
+            if len(lines) > max_lines:
+                lines = lines[-max_lines:]  # keep latest only
+
+            return "\n".join(lines)
+
+        if state.get("memory_context"):
+            memory = compress_memory(state["memory_context"], max_lines=12)
+            context += "\nPrevious conversation:\n" + memory
 
 
         # HANDLE EMPTY CONTEXT FIRST
         if not context.strip():
-            print("⚠️ No relevant context found")
+            print(" No relevant context found")
             context = "No relevant transcript found."
 
         # ===== SAVE RAW CONTEXT BEFORE COMPRESSION =====
         raw_context = context
 
-        # ===== APPLY CONTEXT COMPRESSION =====
-        context = compress_context(context)
-
-
         if not context.strip():
-            print("❌ EMPTY CONTEXT BUG")
+            print(" EMPTY CONTEXT BUG")
 
         # FORCE SAFE CONTEXT (VERY IMPORTANT)
         if len(context.strip()) < 20:
             context = raw_context
-        state["tool_output"] = context
+
 
         # ===== SET CONTEXT LENGTH =====
-        state["context_length"] = len(context)
+        state["context_length"] = max(len(raw_context.strip()), 1)
 
         # ===== ENSURE retrieval_count EXISTS =====
-        if "retrieval_count" not in state:
-            state["retrieval_count"] = len(docs)
+        if "retrieval_count" not in state or state["retrieval_count"] is None:
+            state["retrieval_count"] = max(len(docs), 1)
 
         # ===== EXTRACT TIMESTAMPS FROM RAW CONTEXT (NOT COMPRESSED) =====
         valid_timestamps = []
@@ -1149,17 +1156,17 @@ def build_graph(store, user_id, transcript):
             decision = safe_llm_call(prompt)
             decision_clean = decision.strip().lower()
 
-            print("🧠 Reasoning grounding check:", decision_clean)
+            print(" Reasoning grounding check:", decision_clean)
 
             return "yes" in decision_clean
 
         # ===== APPLY CHECK =====
         if reasoning.strip():
             if is_reasoning_hallucinated(state["tool_output"], reasoning):
-                print("⚠️ Hallucinated reasoning detected → resetting")
+                print(" Hallucinated reasoning detected → resetting")
                 reasoning = "Reasoning based strictly on available transcript."
 
-        print("🧠 Reasoning:", reasoning[:200])
+        print(" Reasoning:", reasoning[:200])
 
         state["reasoning"] = reasoning
         return state
@@ -1184,117 +1191,155 @@ def build_graph(store, user_id, transcript):
         plan = state.get("plan", "")
         state["needs_fallback"] = False
 
+        reasoning_text = state.get("reasoning", "").lower()
+
+        fallback_phrases = [
+            "not enough information",
+            "insufficient information",
+            "cannot be determined",
+            "not mentioned",
+            "not mention",
+            "not provided",
+            "no information",
+            "no relevant information",
+            "not discussed",
+            "unclear",
+            "cannot answer",
+            "this isn't mentioned",
+            "no mention of this topic"
+        ]
+
+        if any(phrase in reasoning_text for phrase in fallback_phrases):
+            print(" Reasoning indicates insufficient context → fallback")
+            state["needs_fallback"] = True
+
         # ===== DIFFERENT PROMPT FOR SUMMARIZE =====
         if plan == "summarize":
 
             prompt = f"""
-        You are an AI assistant.
-
-        Your task is to EXPLAIN the video clearly using the transcript.
-
-        Transcript:
-        {state['tool_output']}
-
-        Reasoning:
-        {state.get('reasoning', '')}
-
-        IMPORTANT INSTRUCTIONS:
-
-        - Combine fragmented lines into meaningful explanations
-        - Explain the idea, not just repeat sentences
-        - Connect related points logically
-        - DO NOT just copy transcript lines
-        
-        - Keep answer concise and structured
-        - Ensure the answer gives a COMPLETE understanding of the video
-        - Include all key events, claims, and context discussed
-
-        STRICT RULES:
-
-        - ONLY use transcript (no outside knowledge)
-        - If something is missing → skip it
-        - Do NOT hallucinate
-        
-        OUTPUT FORMAT (VERY STRICT):
-        You MUST follow ALL rules:
-        
-        1. Output ONLY bullet points
-        2. Maximum 6 bullets (not more)
-        3. Each bullet = ONE idea ONLY
-        4. Each bullet = max 2 lines
-        5. Do NOT write paragraphs
-        6. Do NOT merge multiple ideas
-        7. Do NOT repeat similar points
-        8. Concise structured answers ONLY
-
-        Question:
-        {state['question']}
-        """
+            You are an AI assistant.
+    
+            Your task is to EXPLAIN the video clearly using the transcript.
+    
+            Transcript:
+            {state['tool_output']}
+    
+            Reasoning:
+            {state.get('reasoning', '')}
+    
+            IMPORTANT INSTRUCTIONS:
+    
+            - Combine fragmented lines into meaningful explanations
+            - Explain the idea, not just repeat sentences
+            - Connect related points logically
+            - DO NOT just copy transcript lines
+            
+            - Keep answer concise and structured
+            - Ensure the answer gives a COMPLETE understanding of the video
+            - Include all key events, claims, and context discussed
+    
+            STRICT RULES:
+    
+            - ONLY use transcript (no outside knowledge)
+            - If something is missing → skip it
+            - Do NOT hallucinate
+            
+            OUTPUT FORMAT (VERY STRICT):
+    
+            You MUST follow ALL rules:
+            
+            1. Output ONLY bullet points
+            2. Maximum 6 bullets (not more)
+            3. Each bullet = ONE idea ONLY
+            4. Each bullet = max 2 lines
+            5. Do NOT write paragraphs
+            6. Do NOT merge multiple ideas
+            7. Each bullet MUST be UNIQUE (no repetition or rephrasing of same idea)
+            8. If two points are similar → keep ONLY the most informative one
+            9. DO NOT generate timestamps.
+            10. Timestamps will be added automatically.
+            11. Use real transcript wording where possible
+            12. Concise structured answers ONLY
+    
+            Question:
+            {state['question']}
+            """
 
 
 
         # ===== NORMAL QA PROMPT =====
         else:
             prompt = f"""
-        You are an AI assistant.
-    
-        You MUST answer ONLY using the provided transcript.
-    
-        Transcript:
-        {state['tool_output']}
-    
-        Memory:
-        {state['memory_context']}
-    
-        Reasoning:
-        {state.get('reasoning', '')}
-    
-        Question:
-        {state['question']}
-    
-        STRICT RULES (VERY IMPORTANT):
-    
-        1. DO NOT use any outside knowledge
-        2. DO NOT assume or generalize or hallucinate
-        3. Use ONLY the provided transcript as source of truth
-        4. You MAY combine multiple transcript lines to infer a complete answer
-        5. Combine lines ONLY if they clearly refer to the same subject
-        6. If the answer is truly absent → say: "Not mentioned in the video"
-    
-        7. Every point MUST be supported by transcript text
-        8. Timestamp rules (STRICT):
-        - Format ONLY like: [mm:ss]
-        - DO NOT write: "at [mm:ss]" or "as mentioned at"
-        - DO NOT add any words before timestamps
-        - Timestamp must be at end of bullet point
-    
-        9. DO NOT invent structure like:
-           - "Lesson 1, Lesson 2"
-           - unless explicitly present in transcript
-    
-        10. DO NOT give fake timestamps like 0:00, 5:00, etc.
-        11. Use memory ONLY if it is directly relevant to the question
-        12. If question refers to past conversation → prioritize memory over transcript
-        13. You MUST ONLY use timestamps that appear in the transcript context
-        14. If you are not 100% sure → DO NOT include timestamp
-        15. NEVER generate timestamps on your own
+            You are an AI assistant.
         
-        OUTPUT FORMAT (VERY STRICT):
-
-        You MUST follow ALL rules:
+            You MUST answer ONLY using the provided transcript.
         
-        1. Output ONLY bullet points
-        2. Maximum 4 bullets (not more)
-        3. Each bullet = ONE idea ONLY
-        4. Each bullet = max 2 lines
-        5. Do NOT write paragraphs
-        6. Do NOT merge multiple ideas
-        7. Do NOT repeat similar points
-        9. DO NOT generate timestamps.
-        10. Timestamps will be added automatically.
-        11. Use real transcript wording where possible
-        12. Concise structured answers ONLY
-        """
+            Transcript:
+            {state['tool_output']}
+        
+            Memory:
+            {state['memory_context']}
+        
+            Reasoning:
+            {state.get('reasoning', '')}
+            
+            You MUST use the reasoning to construct the answer whenever it contains relevant information.
+        
+            Question:
+            {state['question']}
+        
+            STRICT RULES (VERY IMPORTANT):
+        
+            1. DO NOT use any outside knowledge
+            2. DO NOT assume or generalize or hallucinate
+            3. Use ONLY the provided transcript as source of truth
+            4. You MAY combine multiple transcript lines to infer a complete answer
+            5. Combine lines ONLY if they clearly refer to the same subject
+            6. If exact details are not mentioned:
+                - clearly state that
+                - but provide any related information available in transcript
+                - DO NOT add outside knowledge
+        
+            7. Every point MUST be supported by transcript text
+            8. Timestamp rules (STRICT):
+            - Format ONLY like: [mm:ss]
+            - DO NOT write: "at [mm:ss]" or "as mentioned at"
+            - DO NOT add any words before timestamps
+            - Timestamp must be at end of bullet point
+        
+            9. DO NOT invent structure like:
+               - "Lesson 1, Lesson 2"
+               - unless explicitly present in transcript
+        
+            10. DO NOT give fake timestamps like 0:00, 5:00, etc.
+            11. Use memory ONLY if it is directly relevant to the question
+            12. If question refers to past conversation → prioritize memory over transcript
+            13. You MUST ONLY use timestamps that appear in the transcript context
+            14. If you are not 100% sure → DO NOT include timestamp
+            15. NEVER generate timestamps on your own
+            
+            OUTPUT FORMAT (VERY STRICT):
+    
+            You MUST follow ALL rules:
+            
+            1. Output ONLY bullet points
+            2. Maximum 3-4 bullets (not more)
+            3. Each bullet = ONE idea ONLY
+            4. Each bullet = max 2 lines
+            5. Do NOT write paragraphs
+            6. Do NOT merge multiple ideas
+            7. Each bullet MUST be UNIQUE (no repetition or rephrasing of same idea)
+            8. If two points are similar → keep ONLY the most informative one
+            9. Avoid generic statements like "not mentioned" multiple times
+            10. If exact answer is not found:
+                - clearly say it is not mentioned
+                - but provide related information from transcript
+                - DO NOT use external knowledge
+            11. DO NOT generate timestamps.
+            12. Timestamps will be added automatically.
+            13. Use real transcript wording where possible
+            14. Concise structured answers ONLY
+            """
 
         # ===== GENERATE ANSWER =====
         # SELECT TASK BASED ON PLAN
@@ -1302,12 +1347,47 @@ def build_graph(store, user_id, transcript):
 
         answer = safe_llm_call(prompt, task=task_type)
 
+        # FIX: PARTIAL ANSWER + CONTROLLED FALLBACK
+        if "not mentioned in the video" in answer.lower():
+            reasoning = state.get("reasoning", "")
+
+            if reasoning and len(reasoning.split()) > 12 and "not enough information" not in reasoning.lower():
+                print(" Using reasoning to generate partial answer")
+
+                partial_prompt = f"""
+                The transcript does not contain an exact answer.
+
+                Use the reasoning below to construct a helpful partial answer.
+
+                Reasoning:
+                {reasoning}
+
+                Question:
+                {state["question"]}
+
+                STRICT RULES:
+                - DO NOT add external knowledge
+                - ONLY use reasoning content
+                - Clearly mention that exact details are not provided
+                - Give the most relevant information available
+                - Keep it concise and structured
+                """
+
+                answer = safe_llm_call(partial_prompt)
+
+                # STILL allow fallback if needed later
+                state["needs_fallback"] = True
+
+            else:
+                print(" No useful reasoning → forcing fallback")
+                state["needs_fallback"] = True
+
         if "error generating response" in answer.lower():
             answer = "Not mentioned in the video"
 
         # EXPAND TOO SHORT SUMMARIES
         if plan == "summarize" and len(answer.strip()) < 80:
-            print("⚠️ Expanding short summary")
+            print(" Expanding short summary")
 
             expand_prompt = f"""
             Expand this explanation to make it more complete and meaningful.
@@ -1354,6 +1434,19 @@ def build_graph(store, user_id, transcript):
 
                 answer_lines.append(p)
 
+        # ===== REMOVE DUPLICATE ANSWER LINES =====
+        unique_lines = []
+        seen = set()
+
+        for line in answer_lines:
+            key = line.lower().strip()
+
+            if key not in seen:
+                seen.add(key)
+                unique_lines.append(line)
+
+        answer_lines = unique_lines
+
         embeddings = get_embeddings()
 
         # ===== BATCH ANSWER EMBEDDINGS =====
@@ -1362,11 +1455,11 @@ def build_graph(store, user_id, transcript):
         try:
             answer_embeddings = embeddings.embed_documents(answer_texts)
         except Exception as e:
-            print("❌ Answer embedding error:", e)
+            print(" Answer embedding error:", e)
             answer_embeddings = [None] * len(answer_lines)
 
 
-        # ===== BATCHED CONTEXT EMBEDDINGS (OPTIMIZED) =====
+        # ===== BATCHED CONTEXT EMBEDDINGS =====
 
         context_embeddings = []
         context_timestamps = []
@@ -1379,7 +1472,7 @@ def build_graph(store, user_id, transcript):
                 continue
 
             ts = match.group(1)
-            text = line.lower().strip()
+            text = re.sub(r"\[\d+s\]", "", line).lower().strip()
 
             if not text:
                 continue
@@ -1394,7 +1487,7 @@ def build_graph(store, user_id, transcript):
             else:
                 context_embeddings = []
         except Exception as e:
-            print("❌ Context embedding error:", e)
+            print(" Context embedding error:", e)
             context_embeddings = []
 
         new_answer = []
@@ -1411,7 +1504,7 @@ def build_graph(store, user_id, transcript):
 
             if ans_emb and context_embeddings:
 
-                # ===== BEST MATCH ONLY (IMPORTANT FIX) =====
+                # ===== BEST MATCH ONLY =====
                 best_score = 0
                 best_idx = None
 
@@ -1474,7 +1567,7 @@ def build_graph(store, user_id, transcript):
             text = re.sub(r"\[(\d+:\d{2})\]\.", r"[\1]", text)
             return text
 
-        # ---------- 4. REMOVE FAKE TIMESTAMPS (MOST IMPORTANT) ----------
+        # ---------- 4. REMOVE FAKE TIMESTAMPS ( MOST IMPORTANT) ----------
         def mmss_to_sec(m, s):
             return int(m) * 60 + int(s)
 
@@ -1488,7 +1581,7 @@ def build_graph(store, user_id, transcript):
                 valid = any(abs(sec - int(t)) <= 5 for t in real_timestamps)
 
                 if not valid:
-                    print(f"❌ Removing fake timestamp: [{m}:{s}]")
+                    print(f" Removing fake timestamp: [{m}:{s}]")
                     answer = answer.replace(f"[{m}:{s}]", "")
 
             return answer
@@ -1501,8 +1594,6 @@ def build_graph(store, user_id, transcript):
         real_ts = state.get("timestamps", [])
 
         answer = remove_fake_timestamps(answer, real_ts)
-        # ===== END FIX =====
-
 
         # ===== NORMALIZE "NOT FOUND" =====
         low = answer.lower()
@@ -1531,7 +1622,7 @@ def build_graph(store, user_id, transcript):
 
             decision = safe_llm_call(prompt).strip().lower()
 
-            print("🧠 Answer quality decision:", decision)
+            print(" Answer quality decision:", decision)
 
             return "sufficient" in decision
 
@@ -1544,7 +1635,7 @@ def build_graph(store, user_id, transcript):
             )
 
             if not sufficient:
-                print("⚠️ Answer insufficient → keeping for fallback")
+                print(" Answer insufficient → keeping for fallback")
                 state["needs_fallback"] = True
 
         # ===== REMOVE HALLUCINATED STRUCTURE =====
@@ -1568,7 +1659,7 @@ def build_graph(store, user_id, transcript):
             return "yes" in decision
 
         if has_hallucinated_structure(answer):
-            print("⚠️ Hallucinated structure detected")
+            print(" Hallucinated structure detected")
             state["needs_fallback"] = True
 
         # ===== REAL CONFIDENCE CALCULATION =====
@@ -1585,7 +1676,7 @@ def build_graph(store, user_id, transcript):
             total = max(len(answer_words), 1)
             overlap_score = overlap / total
 
-            # length score (avoid tiny answers)
+            #  length score (avoid tiny answers)
             length_score = min(len(answer) / 500, 1)
 
             # penalty for "not mentioned"
@@ -1600,67 +1691,65 @@ def build_graph(store, user_id, transcript):
             return max(0.0, min(confidence, 1.0))
 
         # ===== APPLY =====
-        state["confidence"] = compute_confidence(
-            state.get("tool_output", ""),
-            answer
+        state["confidence"] = round(
+            compute_confidence(
+                state.get("tool_output", ""),
+                answer
+            ),
+            3
         )
 
-        # ===== CONTEXT QUALITY SCORE (EMBEDDING BASED) =====
+        state["llm_confidence"] = round(
+            compute_llm_confidence(
+                answer,
+                state.get("tool_output", "")
+            ),
+            3
+        )
+        # ===== HALLUCINATION SCORE =====
+        state["hallucination_score"] = round(
+            1 - (0.7 * state["llm_confidence"] + 0.3 * state["confidence"]),
+            3
+        )
 
-        def compute_context_quality(context, answer):
+        # =====   NEW CONTEXT QUALITY (RETRIEVAL-BASED) =====
+        def compute_context_quality(state):
             try:
-                if not context or not answer:
-                    return 0.0
+                context_length = state.get("context_length", 0)
+                retrieval_count = state.get("retrieval_count", 0)
 
-                embeddings = get_embeddings()
+                context_score = min(math.log1p(context_length) / math.log1p(5000), 1.0)
+                retrieval_score = min(retrieval_count / 8, 1.0)
 
-                embs = embeddings.embed_documents([
-                    context[:2000],
-                    answer[:1000]
-                ])
-
-                context_emb = embs[0]
-                answer_emb = embs[1]
-
-                score = cosine_similarity(context_emb, answer_emb)
+                score = (0.5 * context_score) + (0.5 * retrieval_score)
 
                 return round(score, 3)
 
             except Exception as e:
-                print("❌ Context quality error:", e)
+                print(" Context quality error:", e)
                 return 0.0
 
-        # ===== APPLY =====
-        state["context_quality"] = compute_context_quality(
-            state.get("tool_output", ""),
-            answer
-        )
+        state["context_quality"] = compute_context_quality(state)
+
         # ===== FINAL RELIABILITY SCORE =====
         final_score = (
-                0.5 * state["confidence"] +
-                0.5 * state["context_quality"]
+                0.35 * state["confidence"] +
+                0.25 * state["context_quality"] +
+                0.25 * state["llm_confidence"] +
+                0.15 * (1 - state["hallucination_score"])
         )
 
         state["final_score"] = round(final_score, 3)
 
-
-        # ===== ENSURE CONTEXT LENGTH =====
-        state["context_length"] = state.get("context_length", 0)
+        if "context_length" not in state:
+            state["context_length"] = len(state.get("tool_output", ""))
 
         state["final_answer"] = answer
         state["answer_length"] = len(answer)
 
-        state["metrics"] = {
-            "confidence": state["confidence"],
-            "context_length": state["context_length"],
-            "context_quality": state["context_quality"],
-            "final_score": state["final_score"],
-            "answer_length": state["answer_length"],
-            "retrieval_count": state.get("retrieval_count", 0)
-        }
 
-        print("🔥 ANSWER NODE context_length:", state.get("context_length"))
-        print("🔥 ANSWER NODE confidence:", state.get("confidence"))
+        print(" ANSWER NODE context_length:", state.get("context_length"))
+        print(" ANSWER NODE confidence:", state.get("confidence"))
 
         state["debug"] = {
             "plan": state.get("plan"),
@@ -1674,8 +1763,37 @@ def build_graph(store, user_id, transcript):
 
         return state
 
+    def build_search_query(question, memory):
+        # only use memory if meaningful
+        if not memory or len(memory.strip()) < 20:
+            return question
 
+        prompt = f"""
+        Rewrite the search query using conversation context.
 
+        Question:
+        {question}
+
+        Previous Conversation:
+        {memory}
+
+        Rules:
+        - Keep it SHORT (max 10-12 words)
+        - Add missing context if needed
+        - If already clear or no context needed → keep original
+        - Make it suitable for Wikipedia/Web search
+
+        Output ONLY the query.
+        """
+
+        new_query = safe_llm_call(prompt).strip()
+
+        print(" Enhanced search query:", new_query)
+
+        if not new_query:
+            return question
+
+        return new_query
 
     # ===== WIKIPEDIA FALLBACK =====
     @traceable(name="fallback")
@@ -1683,12 +1801,13 @@ def build_graph(store, user_id, transcript):
 
         plan = state.get("plan", "")
 
-        # DO NOT FALLBACK FOR SUMMARIZE
+        #  DO NOT FALLBACK FOR SUMMARIZE
         if plan == "summarize":
             return state
 
         question = state["question"]
         answer = state["final_answer"]
+        original_answer = answer  # STORE RAW ANSWER BEFORE ANY FALLBACK
         context = state.get("tool_output", "")
 
         # ===== CONFIDENCE FUNCTION (KEEP) =====
@@ -1723,96 +1842,145 @@ def build_graph(store, user_id, transcript):
                 return 0.0
 
         # ===== COMPUTE CONFIDENCE =====
-        confidence = get_confidence(question, context, answer)
+        llm_confidence = get_confidence(question, context, answer)
+        #  DO NOT overwrite if already computed
+        if state.get("llm_confidence", 0) == 0:
+            state["llm_confidence"] = round(llm_confidence, 3)
 
-        # FIX: do NOT override existing confidence
-        state["confidence"] = min(
-            state.get("confidence", 1.0),
-            confidence
-        )
-        state["metrics"] = {
-            "confidence": state["confidence"],
-            "context_length": state.get("context_length", 0),
-            "context_quality": state.get("context_quality", 0.0),
-            "final_score": state.get("final_score", 0.0),
-            "answer_length": len(state.get("final_answer", "")),
-            "retrieval_count": state.get("retrieval_count", 0)
-        }
-
-        print("📊 Confidence:", confidence)
+        print(" LLM Confidence:", llm_confidence)
 
         # ===== SKIP IF GOOD ANSWER =====
         # Confidence should NOT block fallback alone
-        if confidence >= 0.7:
-            print("⚠️ High confidence — but checking usefulness")
+        if state.get("confidence", 0) >= 0.7:
+            print(" High confidence — but checking usefulness")
 
-        # ===== SEMANTIC FALLBACK DECISION (NEW) =====
         def should_fallback(question, context, answer):
             prompt = f"""
             Decide if we should use external knowledge (Wikipedia/Web) 
             to improve the answer.
-
+    
             Question:
             {question}
-
+    
             Transcript:
             {context}
-
+    
             Answer:
             {answer}
-
+    
             Evaluate based on USER USEFULNESS (not correctness).
-
-            Return YES if:
-            - Answer does not actually answer the user's question
-            - Answer lacks key information needed by the user
-            - Answer is incomplete or unhelpful
-            - Answer only says information is missing
-
-            Return NO if:
-            - Answer fully satisfies the user's intent
-            - Answer provides meaningful information
-
-            IMPORTANT:
-            Even if the answer is factually correct,
-            if it is NOT useful → return YES
-
-            Return ONLY YES or NO.
+    
+            IMPORTANT THINKING:
+    
+            - If the answer communicates missing information in ANY form 
+              (e.g., "not mentioned", "not provided", "no information", 
+              "not discussed", "no reference", "insufficient information", etc.)
+              → it is NOT useful
+            
+            - If the answer is repetitive, redundant, or contains the same idea multiple times 
+              → it is NOT useful
+            
+            - If the answer is empty or lacks meaningful content 
+              → it is NOT useful
+            
+            - If the user asked about a person, concept, or specific fact 
+              and the answer does NOT provide actual information about it 
+              → it is NOT useful
+            
+            - If the answer only restates the question or gives vague/general statements 
+              → it is NOT useful
+            
+            - If the answer partially answers but misses key information needed by the user 
+              → it is STILL NOT useful
+            
+            - ONLY consider the answer useful if:
+              → it provides clear, specific, and relevant information
+              → it directly helps the user understand or learn something meaningful
+    
+            Return:
+            - YES → if answer is NOT useful or incomplete
+            - NO → if answer is useful and informative
+    
+            Also return a confidence score (0 to 1) for your decision.
+    
+            Format EXACTLY:
+            YES or NO | score
+    
+            Example:
+            YES | 0.9
             """
 
-            decision = safe_llm_call(prompt)
+            decision = safe_llm_call(prompt).strip().lower()
 
-            decision_clean = decision.strip().lower()
+            print(" Raw fallback decision:", decision)
 
-            print("🧠 Raw fallback decision:", decision)
-            print("🧠 Clean decision:", decision_clean)
-            if not decision_clean:
-                print("⚠️ Empty fallback decision → forcing fallback")
+            if not decision:
+                print(" Empty fallback decision → forcing fallback")
                 return True
 
-            # robust check (NOT hardcoded — handles LLM variability)
-            return decision_clean.startswith("yes")
+            # ===== ROBUST PARSING (NEW FIX) =====
+            parts = [p.strip() for p in decision.split("|")]
+
+            decision_text = parts[0] if len(parts) > 0 else ""
+            score = 0.0
+
+            if len(parts) > 1:
+                try:
+                    score = float(parts[1])
+                except:
+                    score = 0.0
+
+            print(" Parsed decision:", decision_text, "score:", score)
+
+            # ===== FINAL DECISION =====
+            if "yes" in decision_text:
+                return True
+
+            print("Fallback decision:", decision_text, "score:", score)
+
+            if score < 0.4:
+                print(" Low confidence → fallback")
+                return True
+
+            return False
 
         semantic_fallback = should_fallback(question, context, answer)
+        force_fallback = state.get("needs_fallback", False)
 
-        if not semantic_fallback:
-            print("⛔ Fallback not triggered")
+        # USE BOTH METRICS (IMPORTANT)
+        low_conf = (
+                state.get("confidence", 0) < 0.4
+                or state.get("llm_confidence", 0) < 0.5
+        )
+
+        high_hallucination = state.get("hallucination_score", 0) > 0.6
+
+        fallback_needed = (
+                force_fallback
+                or "not mentioned" in answer.lower()
+                or semantic_fallback
+                or low_conf
+                or high_hallucination
+        )
+
+        if not fallback_needed:
+            print(" Fallback not triggered")
             return state
 
-        print("🌍 Wikipedia fallback triggered")
-
         try:
-            query = question
+            memory_context = state.get("memory_context", "")
+            query = build_search_query(question, memory_context)
+            print(" Final search query:", query)
 
-            # ===== 🔍 SEARCH =====
+            # ===== SEARCH =====
             search_results = wikipedia.search(query)
 
             if not search_results:
-                print("⚠️ No Wikipedia results found")
+                print(" No Wikipedia results found")
                 return state
 
             best_match = search_results[0]
-            print("🔎 Wikipedia best match:", best_match)
+            print(" Wikipedia best match:", best_match)
 
             # ===== SEMANTIC ANSWER STYLE (NEW) =====
             def get_answer_style(question):
@@ -1831,7 +1999,8 @@ def build_graph(store, user_id, transcript):
                 style = safe_llm_call(prompt).strip().lower()
                 return style
 
-            style = get_answer_style(query)
+            style = get_answer_style(question)
+
 
             # ===== FETCH WIKI (UPDATED) =====
             try:
@@ -1842,7 +2011,7 @@ def build_graph(store, user_id, transcript):
 
             except wikipedia.exceptions.DisambiguationError as e:
                 option = e.options[0]
-                print("🔁 Using option:", option)
+                print(" Using option:", option)
 
                 if style == "short":
                     wiki = wikipedia.summary(option, sentences=2)
@@ -1850,7 +2019,7 @@ def build_graph(store, user_id, transcript):
                     wiki = wikipedia.summary(option, sentences=6)
 
             except wikipedia.exceptions.PageError:
-                print("❌ Page not found")
+                print(" Page not found")
                 return state
 
             # ===== FORMAT ANSWER =====
@@ -1861,20 +2030,46 @@ def build_graph(store, user_id, transcript):
             {wiki}
 
             Question:
-            {query}
+            {question}
 
             Rules:
             - Be clear and direct
             - Do NOT add unnecessary details
             - If factual → keep short
             - If explanatory → explain properly
+            - Keep answer concise
+            - Use bullet points
+            - Max 4 bullets
             """
 
             new_answer = safe_llm_call(prompt, task="summary")
 
             # ===== SMART MERGE / REPLACE =====
 
-            needs_replace = (confidence < 0.3)
+            def should_replace(answer, state):
+                if not answer or len(answer.strip()) < 30:
+                    return True
+
+                bad_phrases = [
+                    "not mentioned",
+                    "not provided",
+                    "no information",
+                    "not discussed",
+                    "insufficient information"
+                ]
+
+                if any(p in answer.lower() for p in bad_phrases):
+                    return True
+
+                if state.get("confidence", 0) < 0.4:
+                    return True
+
+                if state.get("needs_fallback"):
+                    return True
+
+                return False
+
+            needs_replace = should_replace(original_answer, state)
 
             if needs_replace:
                 # FULL REPLACEMENT
@@ -1882,6 +2077,8 @@ def build_graph(store, user_id, transcript):
                         new_answer + "\n\n📚 Source: Wikipedia"
                 )
                 state["needs_fallback"] = False
+                state["used_wikipedia"] = True
+                state["used_tavily"] = state.get("used_tavily", False)
             else:
                 # APPEND (answer already useful)
                 state["final_answer"] = (
@@ -1891,67 +2088,107 @@ def build_graph(store, user_id, transcript):
                         + "\n\n📚 Source: Wikipedia"
                 )
                 state["needs_fallback"] = False
+                state["used_wikipedia"] = True
+                state["used_tavily"] = state.get("used_tavily", False)
 
         except Exception as e:
-            print("❌ Wikipedia fallback error:", e)
+            print(" Wikipedia fallback error:", e)
 
-        # ==============================
-        # NEW: TAVILY FALLBACK
-        # ==============================
+        # ===== SKIP TAVILY IF WIKI ANSWER IS SUFFICIENT =====
 
-        # ==============================
-        # NEW: TAVILY FALLBACK (FIXED)
-        # ==============================
-        # ADD THIS BLOCK HERE
-        if not state.get("needs_fallback"):
-            print("⛔ Skipping Tavily (fallback already resolved)")
-            return state
-        try:
-            print("🌐 Checking Tavily fallback...")
-
-            query = state["question"]
-            current_answer = state["final_answer"]
-
-            # USE SEMANTIC DECISION (NO HARDCODING)
-            tavily_needed = should_fallback(
-                query,
+        if not should_fallback(
+                question,
                 context,
-                current_answer
+                state["final_answer"]
+        ):
+            print(" Skipping Tavily (Wikipedia answer is sufficient)")
+            return state
+
+
+        # ==============================
+        # TAVILY FALLBACK (FIXED)
+        # ==============================
+
+        try:
+            print(" Checking Tavily fallback...")
+
+            memory_context = state.get("memory_context", "")
+            query = build_search_query(state["question"], memory_context)
+            print(" Final search query:", query)
+
+            # CHECK FINAL ANSWER AFTER WIKIPEDIA
+            tavily_needed = should_fallback(
+                state["question"],
+                context,
+                state["final_answer"]
             )
 
-            if tavily_needed:
+            if not tavily_needed:
+                print(" Tavily not needed")
+                return state
 
-                print("🌐 Tavily fallback triggered")
+            print(" Tavily fallback triggered")
 
-                web_data = search_tavily(query)
+            web_data = search_tavily(query)
 
-                if web_data:
-                    prompt = f"""
-                    Answer using this web data.
+            if web_data:
+                prompt = f"""
+                Answer using this web data.
 
-                    Data:
-                    {web_data}
+                Data:
+                {web_data}
 
-                    Question:
-                    {query}
+                Question:
+                {question}
 
-                    Rules:
-                    - Be accurate
-                    - Keep it concise
-                    - Do NOT hallucinate
-                    """
+                Rules:
+                - Be accurate
+                - Keep it concise
+                - Do NOT add unnecessary details
+                - If factual → keep short
+                - If explanatory → explain properly
+                - Do NOT hallucinate
+                - Keep answer concise
+                - Use bullet points
+                - Max 4 bullets
+                """
 
-                    web_answer = safe_llm_call(prompt, task="summary")
+                web_answer = safe_llm_call(prompt, task="summary")
 
-                    state["final_answer"] += (
-                            "\n\n---\n\n🌐 Additional info (Web):\n"
-                            + web_answer
+                # ===== SMART MERGE / REPLACE (LIKE WIKIPEDIA) =====
+
+                needs_replace = should_replace(state["final_answer"], state)
+
+                if needs_replace:
+                    # FULL REPLACEMENT (very weak answer)
+                    state["final_answer"] = (
+                            web_answer + "\n\n🌐 Source: Tavily"
                     )
+                    state["needs_fallback"] = False
+                    state["used_tavily"] = True
+                    state["used_wikipedia"] = state.get("used_wikipedia", False)
 
-                    print("✅ Tavily answer used")
+                else:
+                    # APPEND (answer partially useful)
+                    state["final_answer"] = (
+                            state["final_answer"]  # keep current (may include Wikipedia)
+                            + "\n\n---\n\n"
+                            + "Additional context from Web:\n"
+                            + web_answer
+                            + "\n\n🌐 Source: Tavily"
+                    )
+                    state["needs_fallback"] = False
+                    state["used_tavily"] = True
+                    state["used_wikipedia"] = state.get("used_wikipedia", False)
+
+                print(" Tavily answer used")
 
         except Exception as e:
-            print("❌ Tavily fallback error:", e)
+            print(" Tavily fallback error:", e)
+
+        print(" FINAL FLAGS:",
+              "Wiki:", state.get("used_wikipedia"),
+              "Tavily:", state.get("used_tavily"))
 
         return state
 
@@ -1994,7 +2231,7 @@ def build_graph(store, user_id, transcript):
             decision = safe_llm_call(prompt)
             decision_clean = decision.strip().lower()
 
-            print("🧠 Critic decision:", decision_clean)
+            print(" Critic decision:", decision_clean)
 
             return "yes" in decision_clean
 
@@ -2002,10 +2239,7 @@ def build_graph(store, user_id, transcript):
         improve = needs_improvement(answer)
 
         if not improve:
-            print("✅ Critic skipped (answer is good)")
-
-            # OPTIONAL SAFETY (ADD THIS)
-            state["metrics"] = state.get("metrics", {})
+            print(" Critic skipped (answer is good)")
 
             return state
 
@@ -2020,12 +2254,18 @@ def build_graph(store, user_id, transcript):
         - Do NOT change meaning
         - Do NOT add new information
         - Do NOT hallucinate
-        - Only improve clarity, structure, and readability
-        - Keep it concise and clean
-        - If already good → return as-is
+        - Do NOT remove or modify any timestamps (e.g., [2:15])
+        - Do NOT add new timestamps
+        - Do NOT change bullet points into a paragraph
+        - Do NOT merge or split bullet points
+        - Preserve exact formatting (line breaks, bullets, spacing)
+        - Keep the same structure (if bullets → keep bullets, if paragraph → keep paragraph)
+        - Only improve wording for clarity and readability
+
+        If the answer is already clear, complete, and well-structured → return it EXACTLY as-is.
 
         OUTPUT:
-        Improved answer only
+        Improved answer only (no explanation, no extra text)
         """
 
         improved = safe_llm_call(prompt)
@@ -2039,29 +2279,18 @@ def build_graph(store, user_id, transcript):
                     len(improved_clean) > 0
                     and improved_clean != answer.strip()
             ):
-                print("✨ Critic improved answer")
+                print(" Critic improved answer")
 
                 state["final_answer"] = improved_clean
 
-                # preserve metrics
-                state["confidence"] = state.get("confidence")
-                state["retrieval_count"] = state.get("retrieval_count")
-                state["context_length"] = state.get("context_length")
+                # ONLY update answer_length (safe)
                 state["answer_length"] = len(improved_clean)
 
-                state["metrics"] = {
-                    "confidence": state.get("confidence", 0.0),
-                    "context_length": state.get("context_length", 0),
-                    "context_quality": state.get("context_quality", 0.0),
-                    "final_score": state.get("final_score", 0.0),
-                    "answer_length": len(state.get("final_answer", "")),
-                    "retrieval_count": state.get("retrieval_count", 0)
-                }
 
             else:
-                print("⚠️ Critic skipped (no meaningful improvement)")
+                print("️ Critic skipped (no meaningful improvement)")
         else:
-            print("⚠️ Critic failed (empty response)")
+            print(" Critic failed (empty response)")
 
         return state
 
@@ -2072,7 +2301,7 @@ def build_graph(store, user_id, transcript):
 
 
         if state.get("needs_fallback"):
-            print("⛔ Skipping followups (fallback needed)")
+            print(" Skipping followups (fallback needed)")
             return state
 
         def is_answer_useful(answer):
@@ -2086,47 +2315,37 @@ def build_graph(store, user_id, transcript):
             """
             decision = safe_llm_call(prompt).strip().lower()
 
-            print("🧠 Followup usefulness:", decision)
+            print(" Followup usefulness:", decision)
 
             return "yes" in decision
 
         if not is_answer_useful(answer):
-            print("⛔ Skipping followups (answer not useful)")
+            print(" Skipping followups (answer not useful)")
             return state
 
         prompt = f"""
-    Suggest 2 short and relevant follow-up questions.
-
-    Answer:
-    {answer}
-
-    Rules:
-    - Keep questions concise
-    - Make them useful for deeper understanding
-    - Do NOT repeat the same question
-    - Format exactly:
-
-    1. ...
-    2. ...
-    """
+        Suggest 2 short and relevant follow-up questions.
+    
+        Answer:
+        {answer}
+    
+        Rules:
+        - Keep questions concise
+        - Make them useful for deeper understanding
+        - Do NOT repeat the same question
+        - Format exactly:
+    
+        1. ...
+        2. ...
+        """
 
         followups = safe_llm_call(prompt)
 
+        # Append followups
         state["final_answer"] += f"\n\n💡 Follow-up questions:\n{followups}"
-        #  PRESERVE METRICS
-        state["confidence"] = state.get("confidence")
-        state["retrieval_count"] = state.get("retrieval_count")
-        state["context_length"] = state.get("context_length")
-        state["answer_length"] = len(state["final_answer"])
 
-        state["metrics"] = {
-            "confidence": state.get("confidence", 0.0),
-            "context_length": state.get("context_length", 0),
-            "context_quality": state.get("context_quality", 0.0),
-            "final_score": state.get("final_score", 0.0),
-            "answer_length": len(state.get("final_answer", "")),
-            "retrieval_count": state.get("retrieval_count", 0)
-        }
+        # ONLY update answer length (safe)
+        state["answer_length"] = len(state["final_answer"])
 
         return state
 
@@ -2143,18 +2362,17 @@ def build_graph(store, user_id, transcript):
 
     graph.set_entry_point("planner")
 
-    graph.add_edge("planner", "tool")
+
+    graph.add_edge("planner", "memory_node")  # FIRST load memory
+    graph.add_edge("memory_node", "tool")  # THEN use memory in retrieval
     graph.add_edge("tool", "reasoning_node")
-    graph.add_edge("reasoning_node", "memory_node")
-    graph.add_edge("memory_node", "answer_node")
+    graph.add_edge("reasoning_node", "answer_node")
     graph.add_edge("answer_node", "fallback_node")
     graph.add_edge("fallback_node", "critic_node")
-
-    # ONLY CHANGE HERE
     graph.add_edge("critic_node", "followup_node")
     graph.add_edge("followup_node", END)
-
     return graph.compile()
+
 # ===== API =====
 @traceable(name="youtube-agent")
 @app.post("/api/ask-stream")
@@ -2176,18 +2394,17 @@ async def ask_stream(request: Request):
         if not video_id:
             return {"error": "Invalid YouTube URL"}
 
-        # MAKE USER+VIDEO UNIQUE (IMPORTANT FIX)
+        # MAKE USER+VIDEO UNIQUE
         user_id = session_id
 
         # ===== VECTOR STORE =====
         store = get_or_create_vectorstore(video_url)
 
         # ===== TRANSCRIPT =====
-        # ===== TRANSCRIPT =====
         transcript = load_transcript(video_id)
 
         if not transcript:
-            print("⚠️ Loading transcript from Apify")
+            print(" Loading transcript from Apify")
 
             transcript, _ = fetch_transcript_apify(video_url)
 
@@ -2195,7 +2412,7 @@ async def ask_stream(request: Request):
                 save_transcript(video_id, transcript)
 
         if not transcript:
-            print("❌ No transcript available at all")
+            print(" No transcript available at all")
             transcript = "Transcript not available."
 
         # ===== BUILD GRAPH =====
@@ -2207,27 +2424,58 @@ async def ask_stream(request: Request):
             "plan": "",
             "tool_output": "",
             "memory_context": "",
-            "final_answer": ""
+            "final_answer": "",
+            "timestamps": [],
+
+            # INIT METRICS (IMPORTANT)
+            "confidence": 0.0,
+            "llm_confidence": 0.0,
+            "context_length": 0,
+            "retrieval_count": 0,
+            "context_quality": 0.0,
+            "final_score": 0.0,
+            "answer_length": 0,
+            "needs_fallback": False,
+
+            "used_wikipedia": False,
+            "used_tavily": False
         })
 
-        final_answer = result["final_answer"]
+        print(" FINAL STATE KEYS:", result.keys())
+        print(" FINAL STATE:", result)
 
-        # GET METRICS DIRECTLY FROM STATE
-        metrics = result.get("metrics", {})
+        final_answer = result.get("final_answer", "")
 
-        # SAFE FALLBACK (if missing)
+        # BULLETPROOF SOURCE DETECTION
+        has_wiki = "source: wikipedia" in final_answer.lower()
+        has_tavily = "source: tavily" in final_answer.lower()
+
+        if has_wiki and has_tavily:
+            source = "Wikipedia + Tavily"
+        elif has_wiki:
+            source = "Wikipedia"
+        elif has_tavily:
+            source = "Tavily"
+        else:
+            source = "Transcript"
+
+
         metrics = {
-            "confidence": metrics.get("confidence", result.get("confidence", 0.0)),
-            "context_length": metrics.get("context_length", result.get("context_length", 0)),
-            "context_quality": metrics.get("context_quality", result.get("context_quality", 0.0)),
-            "final_score": metrics.get("final_score", result.get("final_score", 0.0)),
-            "answer_length": metrics.get("answer_length", len(result.get("final_answer", ""))),
-            "retrieval_count": metrics.get("retrieval_count", result.get("retrieval_count", 0)),
-            "source": "Wikipedia" if "Wikipedia" in result.get("final_answer", "") else "Transcript"
+            "confidence": result.get("confidence", 0.0),
+            "llm_confidence": result.get("llm_confidence", 0.0),
+            "hallucination_score": result.get("hallucination_score", 0.0),
+            "context_length": result.get("context_length", 0),
+            "context_quality": result.get("context_quality", 0.0),
+            "final_score": result.get("final_score", 0.0),
+            "answer_length": len(result.get("final_answer", "")),
+            "retrieval_count": result.get("retrieval_count", 0),
+            "source": source
         }
 
-        print("\n📊 ===== AI METRICS =====")
+        print("\n ===== AI METRICS =====")
         print("Confidence:", metrics["confidence"])
+        print("llm_confidence", metrics["llm_confidence"])
+        print("Hallucination Score:", metrics["hallucination_score"])
         print("Retrieval Count:", metrics["retrieval_count"])
         print("Context Length:", metrics["context_length"])
         print("Context Quality:", metrics["context_quality"])
@@ -2239,7 +2487,7 @@ async def ask_stream(request: Request):
         save_memory(user_id, question, final_answer)
         save_chat_history(user_id, question, final_answer)
 
-        # ===== CORRECT STREAMING (FINAL FIX) =====
+        # ===== CORRECT STREAMING =====
         def stream():
             try:
                 # send answer
@@ -2265,21 +2513,21 @@ def get_history(session_id: str):
 @app.delete("/api/history/{session_id}")
 def delete_history(session_id: str):
     try:
-        print(f"🗑️ Deleting history for session: {session_id}")
+        print(f" Deleting history for session: {session_id}")
 
         bucket = get_bucket()
         blob = bucket.blob(f"chat_history/{session_id}.json")
 
         if blob.exists():
             blob.delete()
-            print("✅ History deleted from GCS")
+            print(" History deleted from GCS")
         else:
-            print("⚠️ No history found in GCS")
+            print("️ No history found in GCS")
 
         return {"status": "deleted"}
 
     except Exception as e:
-        print("❌ Delete error:", e)
+        print(" Delete error:", e)
         return {"error": str(e)}
 
 # ===== LOCAL =====
